@@ -1,0 +1,74 @@
+# Environment files
+.env
+.env.local
+.env.development
+.env.production
+*.env
+
+# API Keys and Secrets
+google-services.json
+GoogleService-Info.plist
+key.properties
+*.keystore
+*.jks
+
+# Keystores (keeping as they're already in the repo based on file structure)
+# Uncomment these if you want to exclude them:
+# android/app/debug.keystore
+# android/app/release.keystore
+
+# Node modules
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Build output
+build/
+dist/
+*.apk
+*.aab
+*.ipa
+
+# OS files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Logs
+*.log
+logs/
+
+# React Native
+.expo/
+.expo-shared/
+
+# Android
+android/app/build/
+android/.gradle/
+android/build/
+android/local.properties
+android/.cxx/
+*.hprof
+
+# iOS
+ios/Pods/
+ios/build/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+
+# Misc
+coverage/
+.nyc_output/
+

@@ -1,0 +1,19 @@
+{
+  "applinks": {
+      "apps": [
+        
+      ],
+      "details": [
+        {
+          "appID": "6466389482.com.buyer.anasaios",
+          "paths": [
+            "NOT /checkout/payment/otp",
+            "NOT /checkout/confirm",
+            "*"
+          ]
+        }
+      ]
+    }
+  }
+
+  

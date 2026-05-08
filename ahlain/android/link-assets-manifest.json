@@ -1,0 +1,117 @@
+{
+  "migIndex": 1,
+  "data": [
+    {
+      "path": "src/assets/fonts/IBMPlexSansArabic-Bold.ttf",
+      "sha1": "b078e1597dd18eca55e09876302f0032a298aaa9"
+    },
+    {
+      "path": "src/assets/fonts/IBMPlexSansArabic-ExtraLight.ttf",
+      "sha1": "9c35c2a4cf1cac6ee9a08cd6119cc4a093201960"
+    },
+    {
+      "path": "src/assets/fonts/IBMPlexSansArabic-Light.ttf",
+      "sha1": "0909a3a7925c773fee7bde493d4c4153dd6a1443"
+    },
+    {
+      "path": "src/assets/fonts/IBMPlexSansArabic-Medium.ttf",
+      "sha1": "94731a31703a6b2a55ccea91f697d31a08d3815a"
+    },
+    {
+      "path": "src/assets/fonts/IBMPlexSansArabic-Regular.ttf",
+      "sha1": "5aa63b31cd723f84bf33ee83431a9a149c01e3c8"
+    },
+    {
+      "path": "src/assets/fonts/IBMPlexSansArabic-SemiBold.ttf",
+      "sha1": "2094e92c0f20daaf095f3dad19845db9c3042849"
+    },
+    {
+      "path": "src/assets/fonts/IBMPlexSansArabic-Thin.ttf",
+      "sha1": "d3eb60389b8de2313b517988071ae25fb66bd9fd"
+    },
+    {
+      "path": "src/assets/fonts/Poppins-Black.ttf",
+      "sha1": "048555c4d0c3a6022b480be4596b1c95d605d32b"
+    },
+    {
+      "path": "src/assets/fonts/Poppins-Bold.ttf",
+      "sha1": "b9b65c039a1f10a5cb5e0726c6e7e18e98a8e517"
+    },
+    {
+      "path": "src/assets/fonts/Poppins-ExtraBold.ttf",
+      "sha1": "66815173c5954271fac6b3ef51076f186577ad6f"
+    },
+    {
+      "path": "src/assets/fonts/Poppins-ExtraLight.ttf",
+      "sha1": "76ae3e4052ea2a21facd642ddd13cbaa80650fa6"
+    },
+    {
+      "path": "src/assets/fonts/Poppins-Light.ttf",
+      "sha1": "246982f0e815573f4915b4dd6f9861d56f147da2"
+    },
+    {
+      "path": "src/assets/fonts/Poppins-Medium.ttf",
+      "sha1": "af7058373acbcf383dd114b8f9bbfb9faafd79eb"
+    },
+    {
+      "path": "src/assets/fonts/Poppins-Regular.ttf",
+      "sha1": "01d319c533f62ea29f03b5df8adfd4d93d2d2a38"
+    },
+    {
+      "path": "src/assets/fonts/Poppins-SemiBold.ttf",
+      "sha1": "20b39c8b480c946b084d6aa09f12bf10b2ec5aa6"
+    },
+    {
+      "path": "src/assets/fonts/Poppins-Thin.ttf",
+      "sha1": "c5c36432a1d00d653bde8a47f4c99171f02362e8"
+    },
+    {
+      "path": "src/assets/fonts/Rubik-Black.ttf",
+      "sha1": "65edd0c628dde87ad6e36a536d59469e5d7ab820"
+    },
+    {
+      "path": "src/assets/fonts/Rubik-Bold.ttf",
+      "sha1": "fdf0640295eb6a6fffca72e87a4d5ee3558f3e20"
+    },
+    {
+      "path": "src/assets/fonts/Rubik-BoldItalic.ttf",
+      "sha1": "fdf0640295eb6a6fffca72e87a4d5ee3558f3e20"
+    },
+    {
+      "path": "src/assets/fonts/Rubik-ExtraBold.ttf",
+      "sha1": "b599eff9728052a6d25cef3d785d3212bdc48322"
+    },
+    {
+      "path": "src/assets/fonts/Rubik-Italic.ttf",
+      "sha1": "43ef50d2ef322e813aee777f4f951b7dc307b796"
+    },
+    {
+      "path": "src/assets/fonts/Rubik-Light.ttf",
+      "sha1": "fba5ebae403a2dfd62eb7d3feb903722112b8368"
+    },
+    {
+      "path": "src/assets/fonts/Rubik-LightItalic.ttf",
+      "sha1": "fba5ebae403a2dfd62eb7d3feb903722112b8368"
+    },
+    {
+      "path": "src/assets/fonts/Rubik-Medium.ttf",
+      "sha1": "7fe02c3bfd9cff54aa2908bbc1960053565ca895"
+    },
+    {
+      "path": "src/assets/fonts/Rubik-MediumItalic.ttf",
+      "sha1": "7fe02c3bfd9cff54aa2908bbc1960053565ca895"
+    },
+    {
+      "path": "src/assets/fonts/Rubik-Regular.ttf",
+      "sha1": "43ef50d2ef322e813aee777f4f951b7dc307b796"
+    },
+    {
+      "path": "src/assets/fonts/Rubik-SemiBold.ttf",
+      "sha1": "7591245e3df3c294961f83a49a7b7420f54d2d03"
+    },
+    {
+      "path": "src/assets/fonts/Rubik-SemiBoldItalic.ttf",
+      "sha1": "7591245e3df3c294961f83a49a7b7420f54d2d03"
+    }
+  ]
+}

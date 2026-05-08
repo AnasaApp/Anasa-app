@@ -1,0 +1,35 @@
+[
+    {
+      "relation": [
+        "delegate_permission/common.get_login_creds"
+      ],
+      "target": {
+        "namespace": "web",
+        "site": "https://anasa.site"
+      }
+    },
+    {
+      "relation": [
+        "delegate_permission/common.get_login_creds"
+      ],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "com.anasa",
+        "sha256_cert_fingerprints": [
+          "E6:76:45:F2:98:CA:13:FA:E0:23:16:1D:8F:A3:B2:C5:99:FE:09:B4:00:47:60:16:38:7E:3C:64:9B:12:25:D3"
+        ]
+      }
+    },
+    {
+      "relation": [
+        "delegate_permission/common.handle_all_urls"
+      ],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "com.anasa",
+        "sha256_cert_fingerprints": [
+          "E6:76:45:F2:98:CA:13:FA:E0:23:16:1D:8F:A3:B2:C5:99:FE:09:B4:00:47:60:16:38:7E:3C:64:9B:12:25:D3"
+        ]
+      }
+    }
+  ]
