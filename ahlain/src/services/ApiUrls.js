@@ -76,4 +76,7 @@ export default {
   VIEW_OCCASION_URL: `${BASE_API_URL}buyer/viewOccasion`,
   RE_ORDER_BOOKING_URL: `${BASE_API_URL}buyer/reOrder`,
   GET_WALLET_INFO_URL: `${BASE_API_URL}buyer/walletInfo`,
+  GET_MY_OCCASIONS_URL: `${BASE_API_URL}buyer/getMyOccasions`,
+  CREATE_MY_OCCASION_URL: `${BASE_API_URL}buyer/createMyOccasion`,
+  PLAN_FOR_ME_URL: `${BASE_API_URL}buyer/planForMe`,
 };

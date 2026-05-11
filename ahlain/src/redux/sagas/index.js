@@ -72,6 +72,9 @@ import {watchGetOccasions} from './GetOccasionsSaga';
 import {watchViewOccasion} from './ViewOccasionSaga';
 import {watchReOrderBooking} from './ReOrderBookingSaga';
 import {watchGetWalletInfo} from './GetWalletInfoSaga';
+import {watchGetMyOccasions} from './GetMyOccasionsSaga';
+import {watchCreateMyOccasion} from './CreateMyOccasionSaga';
+import {watchPlanForMe} from './PlanForMeSaga';
 
 export default function* rootSaga() {
   return yield all([
@@ -148,5 +151,8 @@ export default function* rootSaga() {
     fork(watchViewOccasion),
     fork(watchReOrderBooking),
     fork(watchGetWalletInfo),
+    fork(watchGetMyOccasions),
+    fork(watchCreateMyOccasion),
+    fork(watchPlanForMe),
   ]);
 }

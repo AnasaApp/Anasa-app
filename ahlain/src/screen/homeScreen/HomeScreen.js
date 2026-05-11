@@ -41,6 +41,7 @@ import {
   GetCategoriesReducer,
   GetMarketingOffersReducer,
   GetMyCartReducer,
+  GetMyOccasionsReducer,
   GetOccasionsReducer,
   GetRecommendedReducer,
   MyProfileReducer,
@@ -85,6 +86,9 @@ const HomeScreen = ({navigation}) => {
   );
   const GetOccasionsResponse = useSelector(
     GetOccasionsReducer.selectGetOccasionsData,
+  );
+  const GetMyOccasionsResponse = useSelector(
+    GetMyOccasionsReducer.selectGetMyOccasionsData,
   );
 
   const [userLoggedIn, setUserLoggedIn] = useState(false);
@@ -146,6 +150,7 @@ const HomeScreen = ({navigation}) => {
     if (result == true) {
       changeLanguageApi();
       callMyProfileApi();
+      dispatch({type: SagaActions.GET_MY_OCCASIONS, payload: ''});
     } else {
       dispatch(MyProfileReducer.removeMyProfileResponse());
       dispatch(GetMyCartReducer.removeGetMyCartResponse());
@@ -1332,44 +1337,38 @@ const HomeScreen = ({navigation}) => {
             </View>
           )}
 
-          <View style={styles.categoriesCss}>
-            {/* <Text
-              style={{
-                fontFamily: config.fonts.Saudi_Riyal,
-                fontSize: 16,
-                lineHeight: 24,
-                color: config.colors.Black,
-              }}>
-              {'\uE900'}
-              {t('Top Vendors')}
-            </Text> */}
-            <Text
-              style={{
-                fontFamily: config.fonts.Poppins_SemiBold,
-                fontSize: 16,
-                lineHeight: 24,
-                color: config.colors.Black,
-              }}>
-              {t('Top Vendors')}
-            </Text>
-            <TouchableOpacity
-              activeOpacity={0.5}
-              onPress={() => {
-                navigation.navigate(config.routes.ALL_VENDORS);
-              }}>
-              <Text style={styles.showAllText}>{t('Show All')}</Text>
-            </TouchableOpacity>
-          </View>
-          <FlatList
-            data={TopRatedResponse?.results?.newVendor}
-            renderItem={renderItem}
-            horizontal={true}
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{paddingHorizontal: 10, paddingTop: 10}}
-            style={{
-              alignSelf: 'flex-start',
-            }}
-          />
+          {TopRatedResponse?.results?.newVendor?.length > 0 && (
+            <>
+              <View style={styles.categoriesCss}>
+                <Text
+                  style={{
+                    fontFamily: config.fonts.Poppins_SemiBold,
+                    fontSize: 16,
+                    lineHeight: 24,
+                    color: config.colors.Black,
+                  }}>
+                  {t('Top Vendors')}
+                </Text>
+                <TouchableOpacity
+                  activeOpacity={0.5}
+                  onPress={() => {
+                    navigation.navigate(config.routes.ALL_VENDORS);
+                  }}>
+                  <Text style={styles.showAllText}>{t('Show All')}</Text>
+                </TouchableOpacity>
+              </View>
+              <FlatList
+                data={TopRatedResponse?.results?.newVendor}
+                renderItem={renderItem}
+                horizontal={true}
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{paddingHorizontal: 10, paddingTop: 10}}
+                style={{
+                  alignSelf: 'flex-start',
+                }}
+              />
+            </>
+          )}
           <View
             style={{
               backgroundColor: config.colors.white,
@@ -1447,13 +1446,250 @@ const HomeScreen = ({navigation}) => {
               viewStyle={{marginTop: 15, marginHorizontal: 0}}
             />
           </View>
+          {/* ── My Occasions Section ── */}
+          {userLoggedIn && (
+            <>
+              <View
+                style={{
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  paddingHorizontal: 20,
+                  marginTop: 20,
+                  marginBottom: 10,
+                }}>
+                <Text
+                  style={{
+                    fontFamily: config.fonts.Poppins_SemiBold,
+                    fontSize: 16,
+                    lineHeight: 24,
+                    color: config.colors.Black,
+                  }}>
+                  {t('My Occasions')}
+                </Text>
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={() => navigation.navigate(config.routes.MY_OCCASIONS)}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    backgroundColor: config.colors.creamColor,
+                    borderRadius: 20,
+                    paddingHorizontal: 12,
+                    paddingVertical: 5,
+                  }}>
+                  <Text
+                    style={{
+                      fontFamily: config.fonts.Poppins_SemiBold,
+                      fontSize: 13,
+                      color: config.colors.orangeColor,
+                      marginRight: 4,
+                    }}>
+                    {t('View All')}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {GetMyOccasionsResponse?.results?.occasions?.length > 0 ? (
+                <FlatList
+                  data={GetMyOccasionsResponse?.results?.occasions}
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  keyExtractor={(item, idx) => (item?._id ?? idx).toString()}
+                  contentContainerStyle={{paddingHorizontal: 16, paddingBottom: 4}}
+                  style={{alignSelf: 'flex-start'}}
+                  renderItem={({item, index}) => {
+                    const daysLeft = item?.date
+                      ? require('moment')(item.date).diff(
+                          require('moment')(),
+                          'days',
+                        )
+                      : null;
+                    const accentColors = [
+                      config.colors.orangeColor,
+                      config.colors.buttonColor,
+                      config.colors.yellowColor,
+                    ];
+                    return (
+                      <TouchableOpacity
+                        activeOpacity={0.85}
+                        key={index}
+                        onPress={() =>
+                          navigation.navigate(
+                            config.routes.OCCASION_PLANNING_TYPE,
+                            {occasion: item},
+                          )
+                        }
+                        style={{
+                          backgroundColor: config.colors.white,
+                          borderRadius: 14,
+                          marginRight: 12,
+                          width: 155,
+                          overflow: 'hidden',
+                          elevation: 3,
+                          shadowColor: '#000',
+                          shadowOffset: {width: 0, height: 2},
+                          shadowOpacity: 0.07,
+                          shadowRadius: 5,
+                        }}>
+                        <View
+                          style={{
+                            height: 5,
+                            backgroundColor: accentColors[index % 3],
+                          }}
+                        />
+                        <View style={{padding: 12}}>
+                          <View
+                            style={{
+                              width: 38,
+                              height: 38,
+                              borderRadius: 19,
+                              backgroundColor: config.colors.creamColor,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              marginBottom: 8,
+                            }}>
+                            <Text style={{fontSize: 20}}>🎂</Text>
+                          </View>
+                          <Text
+                            numberOfLines={1}
+                            style={{
+                              fontFamily: config.fonts.Poppins_SemiBold,
+                              fontSize: 13,
+                              color: config.colors.Black,
+                              lineHeight: 20,
+                            }}>
+                            {item?.name}
+                          </Text>
+                          <Text
+                            style={{
+                              fontFamily: config.fonts.Poppins_Regular,
+                              fontSize: 11,
+                              color: config.colors.Gray,
+                              lineHeight: 16,
+                              marginTop: 2,
+                            }}>
+                            {item?.date
+                              ? require('moment')(item.date).format('DD MMM YYYY')
+                              : ''}
+                          </Text>
+                          {daysLeft !== null && daysLeft >= 0 && (
+                            <View
+                              style={{
+                                marginTop: 8,
+                                backgroundColor: config.colors.creamColor,
+                                borderRadius: 8,
+                                paddingHorizontal: 8,
+                                paddingVertical: 3,
+                                alignSelf: 'flex-start',
+                              }}>
+                              <Text
+                                style={{
+                                  fontFamily: config.fonts.Poppins_Medium,
+                                  fontSize: 11,
+                                  color: config.colors.orangeColor,
+                                }}>
+                                {daysLeft} {t('days')}
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  }}
+                />
+              ) : (
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={() =>
+                    navigation.navigate(config.routes.CREATE_OCCASION)
+                  }
+                  style={{
+                    marginHorizontal: 16,
+                    backgroundColor: config.colors.white,
+                    borderRadius: 14,
+                    borderWidth: 1.5,
+                    borderColor: config.colors.orangeColor,
+                    borderStyle: 'dashed',
+                    padding: 18,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    marginBottom: 4,
+                  }}>
+                  <View
+                    style={{
+                      width: 44,
+                      height: 44,
+                      borderRadius: 22,
+                      backgroundColor: config.colors.creamColor,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginRight: 14,
+                    }}>
+                    <Text style={{fontSize: 22}}>+</Text>
+                  </View>
+                  <View>
+                    <Text
+                      style={{
+                        fontFamily: config.fonts.Poppins_SemiBold,
+                        fontSize: 14,
+                        color: config.colors.Black,
+                        lineHeight: 20,
+                      }}>
+                      {t('Add New Occasion')}
+                    </Text>
+                    <Text
+                      style={{
+                        fontFamily: config.fonts.Poppins_Regular,
+                        fontSize: 12,
+                        color: config.colors.Gray,
+                        lineHeight: 18,
+                      }}>
+                      {t('Birthdays, Weddings & more')}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+
+              {/* Add New button below cards when occasions exist */}
+              {GetMyOccasionsResponse?.results?.occasions?.length > 0 && (
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={() =>
+                    navigation.navigate(config.routes.CREATE_OCCASION)
+                  }
+                  style={{
+                    alignSelf: 'flex-start',
+                    marginLeft: 16,
+                    marginTop: 8,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    backgroundColor: config.colors.creamColor,
+                    borderRadius: 20,
+                    paddingHorizontal: 14,
+                    paddingVertical: 7,
+                  }}>
+                  <Text
+                    style={{
+                      fontFamily: config.fonts.Poppins_SemiBold,
+                      fontSize: 13,
+                      color: config.colors.orangeColor,
+                    }}>
+                    {'+ ' + t('Add New')}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </>
+          )}
+
+          {/* ── Platform Occasions Section ── */}
           <View
             style={{
               flexDirection: 'row',
               justifyContent: 'space-between',
               alignItems: 'center',
               paddingHorizontal: 20,
-              marginTop: 15,
+              marginTop: 20,
             }}>
             <Text
               style={{
@@ -1464,13 +1700,6 @@ const HomeScreen = ({navigation}) => {
               }}>
               {t('Occasions')}
             </Text>
-            {/* <TouchableOpacity
-              activeOpacity={0.5}
-              onPress={() => {
-                navigation.navigate(config.routes.CATEGORIES);
-              }}>
-              <Text style={styles.showAllText}>{t('Show All')}</Text>
-            </TouchableOpacity> */}
           </View>
           <FlatList
             data={GetOccasionsResponse?.results?.occasions}
@@ -1478,10 +1707,10 @@ const HomeScreen = ({navigation}) => {
             horizontal={true}
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={{paddingHorizontal: 10, paddingTop: 10}}
-            style={{
-              alignSelf: 'flex-start',
-            }}
+            style={{alignSelf: 'flex-start'}}
           />
+
+          {/* ── Anasa Recommends Section ── */}
           <View
             style={{
               flexDirection: 'row',
@@ -1512,9 +1741,6 @@ const HomeScreen = ({navigation}) => {
               }}
               showsVerticalScrollIndicator={false}
               scrollEnabled={false}
-              onEndReached={loadMoreRecommended}
-              onEndReachedThreshold={0.5}
-              ListFooterComponent={renderRecommendedFooter}
             />
           )}
         </ScrollView>

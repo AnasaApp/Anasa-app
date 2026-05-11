@@ -52,4 +52,7 @@ export default {
   FAQ: 'FAQ',
   VIEW_OCCASION: 'VIEW_OCCASION',
   MY_EARNINGS: 'MY_EARNINGS',
+  MY_OCCASIONS: 'MyOccasions',
+  CREATE_OCCASION: 'CreateOccasion',
+  OCCASION_PLANNING_TYPE: 'OccasionPlanningType',
 };

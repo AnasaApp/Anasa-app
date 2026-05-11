@@ -191,6 +191,17 @@ export const ApiCalls = ({apiType}) => {
       requestType = 'POST';
       requestUrl = ApiUrls.GET_WALLET_INFO_URL;
       break;
+
+    case SagaActions.CREATE_MY_OCCASION:
+      requestType = 'POST';
+      requestUrl = ApiUrls.CREATE_MY_OCCASION_URL;
+      break;
+
+    case SagaActions.PLAN_FOR_ME:
+      requestType = 'POST';
+      requestUrl = ApiUrls.PLAN_FOR_ME_URL;
+      break;
+
     // GET REQUESTS
     case SagaActions.MY_PROFILE:
       requestType = 'GET';
@@ -325,6 +336,11 @@ export const ApiCalls = ({apiType}) => {
     case SagaActions.RE_ORDER_BOOKING:
       requestType = 'GET';
       requestUrl = ApiUrls.RE_ORDER_BOOKING_URL;
+      break;
+
+    case SagaActions.GET_MY_OCCASIONS:
+      requestType = 'GET';
+      requestUrl = ApiUrls.GET_MY_OCCASIONS_URL;
       break;
 
     default:

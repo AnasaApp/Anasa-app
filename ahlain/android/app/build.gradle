@@ -21,8 +21,8 @@ android {
         applicationId "com.anasa"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 54
-        versionName "1.0.41"
+        versionCode 55
+        versionName "1.0.42"
 
 
         manifestPlaceholders = [usesCleartextTraffic: "true"]
@@ -54,7 +54,7 @@ android {
             }
         }
         release {
-            signingConfig signingConfigs.release
+            signingConfig signingConfigs.debug
             minifyEnabled false
             shrinkResources false
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"

@@ -73,6 +73,9 @@ import * as GetOccasionsReducer from './GetOccasionsReducer';
 import * as ViewOccasionReducer from './ViewOccasionReducer';
 import * as ReOrderBookingReducer from './ReOrderBookingReducer';
 import * as GetWalletInfoReducer from './GetWalletInfoReducer';
+import * as GetMyOccasionsReducer from './GetMyOccasionsReducer';
+import * as CreateMyOccasionReducer from './CreateMyOccasionReducer';
+import * as PlanForMeReducer from './PlanForMeReducer';
 
 const reducers = combineReducers({
   loginUserReducer: LoginUserReducer.loginUserSliceReducer,
@@ -162,6 +165,10 @@ const reducers = combineReducers({
   ViewOccasionReducer: ViewOccasionReducer.ViewOccasionSliceReducer,
   ReOrderBookingReducer: ReOrderBookingReducer.ReOrderBookingSliceReducer,
   GetWalletInfoReducer: GetWalletInfoReducer.GetWalletInfoSliceReducer,
+  GetMyOccasionsReducer: GetMyOccasionsReducer.GetMyOccasionsSliceReducer,
+  CreateMyOccasionReducer:
+    CreateMyOccasionReducer.CreateMyOccasionSliceReducer,
+  PlanForMeReducer: PlanForMeReducer.PlanForMeSliceReducer,
 });
 
 export {
@@ -240,4 +247,7 @@ export {
   ViewOccasionReducer,
   ReOrderBookingReducer,
   GetWalletInfoReducer,
+  GetMyOccasionsReducer,
+  CreateMyOccasionReducer,
+  PlanForMeReducer,
 };
