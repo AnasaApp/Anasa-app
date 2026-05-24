@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, {useCallback, useEffect, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   View,
   SafeAreaView,
@@ -60,6 +60,26 @@ import AppImage from '../../conponents/AppImage';
 import Snackbar from 'react-native-snackbar';
 import {goToLogin} from '../../conponents/NavigationRef';
 
+const RECOMMENDED_PAGE_SIZE = 4;
+
+// Two demo occasions shown at the top of "My Occasions". They use real
+// services (pulled from the recommended list already in redux) so the
+// "Add to Cart" action on the view page actually works against the backend.
+const DUMMY_OCCASIONS_META = [
+  {
+    _id: 'dummy-occasion-birthday',
+    name: 'My Birthday Bash',
+    emoji: '🎂',
+    addDays: 15,
+  },
+  {
+    _id: 'dummy-occasion-anniversary',
+    name: 'Wedding Anniversary',
+    emoji: '💍',
+    addDays: 45,
+  },
+];
+
 const HomeScreen = ({navigation}) => {
   const {t, i18n} = useTranslation();
   const dispatch = useDispatch();
@@ -92,6 +112,50 @@ const HomeScreen = ({navigation}) => {
   );
 
   const [userLoggedIn, setUserLoggedIn] = useState(false);
+  const [recommendedVisibleCount, setRecommendedVisibleCount] = useState(
+    RECOMMENDED_PAGE_SIZE,
+  );
+
+  // Run `action` if logged in, otherwise bounce to the auth flow.
+  // Used by sections (e.g. My Occasions) that are visible to guests but
+  // require an authenticated user to actually perform the action.
+  const requireAuth = action => () => {
+    if (userLoggedIn) {
+      action();
+    } else {
+      goToLogin(config.routes.AUTH_NAVIGATION);
+    }
+  };
+
+  // Build the demo occasions on top of any real ones from the backend.
+  // Services attached to the dummies are sliced from the live recommended
+  // list so each dummy points to actual services from the catalog.
+  const dummyOccasions = useMemo(() => {
+    const pool = GetRecommendedResponse?.results?.services || [];
+    return DUMMY_OCCASIONS_META.map((meta, i) => ({
+      _id: meta._id,
+      name: meta.name,
+      emoji: meta.emoji,
+      isDummy: true,
+      date: require('moment')().add(meta.addDays, 'days').toISOString(),
+      services: pool.slice(i * 2, i * 2 + 2),
+    }));
+  }, [GetRecommendedResponse]);
+
+  const myOccasionsList = useMemo(() => {
+    const real = GetMyOccasionsResponse?.results?.occasions || [];
+    return [...dummyOccasions, ...real];
+  }, [dummyOccasions, GetMyOccasionsResponse]);
+
+  // Tap behavior: if the occasion already has services attached, open the
+  // services view + Add to Cart screen; otherwise go to the planning chooser.
+  const openOccasion = occasion => {
+    if (occasion?.services?.length > 0) {
+      navigation.navigate(config.routes.OCCASION_VIEW, {occasion});
+    } else {
+      navigation.navigate(config.routes.OCCASION_PLANNING_TYPE, {occasion});
+    }
+  };
 
   const colorScheme = useColorScheme();
   const appState = useRef(AppState.currentState);
@@ -1447,8 +1511,9 @@ const HomeScreen = ({navigation}) => {
             />
           </View>
           {/* ── My Occasions Section ── */}
-          {userLoggedIn && (
-            <>
+          {/* Always rendered; guest users get bounced to login when they
+              tap any action inside (handled via requireAuth). */}
+          <>
               <View
                 style={{
                   flexDirection: 'row',
@@ -1469,7 +1534,9 @@ const HomeScreen = ({navigation}) => {
                 </Text>
                 <TouchableOpacity
                   activeOpacity={0.7}
-                  onPress={() => navigation.navigate(config.routes.MY_OCCASIONS)}
+                  onPress={requireAuth(() =>
+                    navigation.navigate(config.routes.MY_OCCASIONS),
+                  )}
                   style={{
                     flexDirection: 'row',
                     alignItems: 'center',
@@ -1490,9 +1557,9 @@ const HomeScreen = ({navigation}) => {
                 </TouchableOpacity>
               </View>
 
-              {GetMyOccasionsResponse?.results?.occasions?.length > 0 ? (
+              {myOccasionsList?.length > 0 ? (
                 <FlatList
-                  data={GetMyOccasionsResponse?.results?.occasions}
+                  data={myOccasionsList}
                   horizontal
                   showsHorizontalScrollIndicator={false}
                   keyExtractor={(item, idx) => (item?._id ?? idx).toString()}
@@ -1514,12 +1581,7 @@ const HomeScreen = ({navigation}) => {
                       <TouchableOpacity
                         activeOpacity={0.85}
                         key={index}
-                        onPress={() =>
-                          navigation.navigate(
-                            config.routes.OCCASION_PLANNING_TYPE,
-                            {occasion: item},
-                          )
-                        }
+                        onPress={requireAuth(() => openOccasion(item))}
                         style={{
                           backgroundColor: config.colors.white,
                           borderRadius: 14,
@@ -1549,7 +1611,9 @@ const HomeScreen = ({navigation}) => {
                               justifyContent: 'center',
                               marginBottom: 8,
                             }}>
-                            <Text style={{fontSize: 20}}>🎂</Text>
+                            <Text style={{fontSize: 20}}>
+                              {item?.emoji ?? '🎂'}
+                            </Text>
                           </View>
                           <Text
                             numberOfLines={1}
@@ -1601,9 +1665,9 @@ const HomeScreen = ({navigation}) => {
               ) : (
                 <TouchableOpacity
                   activeOpacity={0.8}
-                  onPress={() =>
-                    navigation.navigate(config.routes.CREATE_OCCASION)
-                  }
+                  onPress={requireAuth(() =>
+                    navigation.navigate(config.routes.CREATE_OCCASION),
+                  )}
                   style={{
                     marginHorizontal: 16,
                     backgroundColor: config.colors.white,
@@ -1652,12 +1716,12 @@ const HomeScreen = ({navigation}) => {
               )}
 
               {/* Add New button below cards when occasions exist */}
-              {GetMyOccasionsResponse?.results?.occasions?.length > 0 && (
+              {myOccasionsList?.length > 0 && (
                 <TouchableOpacity
                   activeOpacity={0.8}
-                  onPress={() =>
-                    navigation.navigate(config.routes.CREATE_OCCASION)
-                  }
+                  onPress={requireAuth(() =>
+                    navigation.navigate(config.routes.CREATE_OCCASION),
+                  )}
                   style={{
                     alignSelf: 'flex-start',
                     marginLeft: 16,
@@ -1680,9 +1744,8 @@ const HomeScreen = ({navigation}) => {
                 </TouchableOpacity>
               )}
             </>
-          )}
 
-          {/* ── Platform Occasions Section ── */}
+          {/* ── Anasa Occasions Section ── */}
           <View
             style={{
               flexDirection: 'row',
@@ -1698,7 +1761,7 @@ const HomeScreen = ({navigation}) => {
                 lineHeight: 24,
                 color: config.colors.Black,
               }}>
-              {t('Occasions')}
+              {t('Anasa Occasions')}
             </Text>
           </View>
           <FlatList
@@ -1731,17 +1794,37 @@ const HomeScreen = ({navigation}) => {
             </Text>
           </View>
           {GetRecommendedResponse?.results?.services?.length > 0 && (
-            <FlatList
-              data={GetRecommendedResponse?.results?.services}
-              renderItem={renderRecommendItem}
-              keyExtractor={(item, index) => item?._id + index.toString()}
-              numColumns={2}
-              columnWrapperStyle={{
-                paddingHorizontal: 10,
-              }}
-              showsVerticalScrollIndicator={false}
-              scrollEnabled={false}
-            />
+            <>
+              <FlatList
+                data={GetRecommendedResponse?.results?.services?.slice(
+                  0,
+                  recommendedVisibleCount,
+                )}
+                renderItem={renderRecommendItem}
+                keyExtractor={(item, index) => item?._id + index.toString()}
+                numColumns={2}
+                columnWrapperStyle={{
+                  paddingHorizontal: 10,
+                }}
+                showsVerticalScrollIndicator={false}
+                scrollEnabled={false}
+              />
+              {GetRecommendedResponse?.results?.services?.length >
+                recommendedVisibleCount && (
+                <AppButton
+                  text={t('Load More')}
+                  onPress={() =>
+                    setRecommendedVisibleCount(
+                      prev => prev + RECOMMENDED_PAGE_SIZE,
+                    )
+                  }
+                  buttonStyle={{
+                    marginHorizontal: 20,
+                    marginTop: 10,
+                  }}
+                />
+              )}
+            </>
           )}
         </ScrollView>
       </View>

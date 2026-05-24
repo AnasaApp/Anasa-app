@@ -14,12 +14,16 @@ import {
   Share,
   StatusBar,
   Linking,
+  Modal,
+  FlatList,
 } from 'react-native';
+import moment from 'moment';
 import config from '../../config';
 import RBSheet from 'react-native-raw-bottom-sheet';
 import {useDispatch, useSelector} from 'react-redux';
 import {
   AddToCartReducer,
+  GetMyOccasionsReducer,
   GetServicesReducer,
   ServiceDetailReducer,
 } from '../../redux/reducers';
@@ -37,6 +41,30 @@ import {goToLogin} from '../../conponents/NavigationRef';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import SkeltonLoader from '../../conponents/SkeltonLoader';
 
+// Sample rows for the Add-to-Occasion sheet when the user has no occasions yet (debug builds only).
+const DUMMY_MY_OCCASIONS_FOR_MODAL = __DEV__
+  ? [
+      {
+        _id: '__dummy_occasion_birthday__',
+        name: 'Birthday Party',
+        date: moment().add(12, 'days').startOf('day').toISOString(),
+        _isDummy: true,
+      },
+      {
+        _id: '__dummy_occasion_office__',
+        name: 'Office Breakfast',
+        date: moment().add(3, 'days').startOf('day').toISOString(),
+        _isDummy: true,
+      },
+      {
+        _id: '__dummy_occasion_wedding__',
+        name: 'Wedding Brunch',
+        date: moment().add(45, 'days').startOf('day').toISOString(),
+        _isDummy: true,
+      },
+    ]
+  : [];
+
 const Service = ({navigation, route}) => {
   const {t, i18n} = useTranslation();
 
@@ -52,6 +80,9 @@ const Service = ({navigation, route}) => {
   const GetServicesResponse = useSelector(
     GetServicesReducer.selectGetServicesData,
   );
+  const GetMyOccasionsResponse = useSelector(
+    GetMyOccasionsReducer.selectGetMyOccasionsData,
+  );
   const {onSelectCustomization} = route?.params;
 
   const refRBSheet = useRef();
@@ -61,6 +92,11 @@ const Service = ({navigation, route}) => {
   const [selectedName, setSelectedName] = useState('');
   const [selectedPrice, setSelectedPrice] = useState(0);
   const [selectedServiceTab, setSelectedServiceTab] = useState('Details');
+  const [showOccasionModal, setShowOccasionModal] = useState(false);
+
+  const apiOccasions = GetMyOccasionsResponse?.results?.occasions ?? [];
+  const occasionsForModal =
+    apiOccasions.length > 0 ? apiOccasions : DUMMY_MY_OCCASIONS_FOR_MODAL;
 
   const [recommendedList, setRecommendedList] = useState([]);
 
@@ -244,6 +280,49 @@ const Service = ({navigation, route}) => {
 
     dispatch({type: SagaActions.ADD_TO_CART, payload});
   };
+
+  // Open the "Add to Occasion" picker. Guests are redirected to login;
+  // logged-in users get a freshly fetched list of their occasions.
+  const onPressAddToOccasion = async () => {
+    const res = await AsyncStorage.getItem(config.AsyncKeys.USER_LOGGED_IN);
+    const result = JSON.parse(res);
+    if (!result) {
+      goToLogin(config.routes.AUTH_NAVIGATION);
+      return;
+    }
+    if (
+      isCustomizeRequired(ServiceDetailResponse?.results?.service?.packages) !=
+      ''
+    ) {
+      return Toast.show(
+        isCustomizeRequired(ServiceDetailResponse?.results?.service?.packages),
+        Toast.SHORT,
+      );
+    }
+    dispatch({type: SagaActions.GET_MY_OCCASIONS, payload: ''});
+    setShowOccasionModal(true);
+  };
+
+  // Picked an occasion in the modal -> piggyback on ADD_TO_CART and attach
+  // the occasion fields so the backend can associate the service with it.
+  // Unknown fields are ignored server-side, so this is forward-compatible.
+  const onSelectOccasion = occasion => {
+    if (occasion?._isDummy) {
+      Toast.show(t('dummy_occasion_list_hint'), Toast.LONG);
+      return;
+    }
+    const payload = {
+      serviceId: ServiceDetailResponse?.results?.service?._id,
+      packageId: selectedPackageList,
+      price: selectedPrice,
+      occasion_id: occasion?._id,
+      occasion_name: occasion?.name,
+    };
+    trackEvents('add_to_occasion', payload);
+    setShowOccasionModal(false);
+    dispatch({type: SagaActions.ADD_TO_CART, payload});
+  };
+
   const getReviewStarRatingView = rating => {
     const totalStars = 5;
     let view = [];
@@ -282,7 +361,7 @@ const Service = ({navigation, route}) => {
   };
   const callShareApi = async id => {
     // const getLink = await generateLink();
-    const link = 'https://anasa.site:2053/service/' + id;
+    const link = `${config.constants.PUBLIC_WEB_ORIGIN}/service/${id}`;
     try {
       Share.share({
         message: link,
@@ -1050,19 +1129,127 @@ const Service = ({navigation, route}) => {
                   buttonStyle={{marginVertical: 20, marginHorizontal: 0}}
                 />
               ) : (
-                <AppButton
-                  text={t('Add to Cart')}
-                  onPress={() => {
-                    onPressAddToCart();
-                  }}
-                  buttonStyle={{marginVertical: 20, marginHorizontal: 0}}
-                />
+                <View style={styles.bottomActionRow}>
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    style={styles.addToOccasionBtn}
+                    onPress={onPressAddToOccasion}>
+                    <Text style={styles.addToOccasionText}>
+                      {t('Add to Occasion')}
+                    </Text>
+                  </TouchableOpacity>
+                  <AppButton
+                    text={t('Add to Cart')}
+                    onPress={() => {
+                      onPressAddToCart();
+                    }}
+                    buttonStyle={styles.addToCartBtn}
+                  />
+                </View>
               ))}
           </View>
         </>
       ) : (
         <SkeltonView />
       )}
+
+      {/* "Add to Occasion" picker modal */}
+      <Modal
+        visible={showOccasionModal}
+        transparent
+        animationType="slide"
+        statusBarTranslucent
+        onRequestClose={() => setShowOccasionModal(false)}>
+        <TouchableOpacity
+          activeOpacity={1}
+          style={styles.occasionModalOverlay}
+          onPress={() => setShowOccasionModal(false)}>
+          <View
+            style={styles.occasionSheet}
+            onStartShouldSetResponder={() => true}>
+            <View style={styles.occasionSheetHandle} />
+            <Text style={styles.occasionSheetTitle}>
+              {t('Add to Occasion')}
+            </Text>
+            <Text style={styles.occasionSheetSubtitle}>
+              {t('Choose an occasion to add this service to')}
+            </Text>
+
+            {occasionsForModal.length > 0 ? (
+              <FlatList
+                data={occasionsForModal}
+                keyExtractor={(item, idx) => (item?._id ?? idx).toString()}
+                style={{maxHeight: 360}}
+                showsVerticalScrollIndicator={false}
+                renderItem={({item, index}) => {
+                  const accentColors = [
+                    config.colors.orangeColor,
+                    config.colors.buttonColor,
+                    config.colors.yellowColor,
+                  ];
+                  const daysLeft = item?.date
+                    ? moment(item.date).diff(moment(), 'days')
+                    : null;
+                  return (
+                    <TouchableOpacity
+                      activeOpacity={0.85}
+                      onPress={() => onSelectOccasion(item)}
+                      style={styles.occasionRow}>
+                      <View
+                        style={[
+                          styles.occasionRowAccent,
+                          {backgroundColor: accentColors[index % 3]},
+                        ]}
+                      />
+                      <View style={styles.occasionRowIcon}>
+                        <Text style={{fontSize: 20}}>🎂</Text>
+                      </View>
+                      <View style={{flex: 1}}>
+                        <Text style={styles.occasionRowName} numberOfLines={1}>
+                          {item?.name}
+                        </Text>
+                        <Text style={styles.occasionRowDate}>
+                          {item?.date
+                            ? moment(item.date).format('DD MMM YYYY')
+                            : ''}
+                          {daysLeft !== null && daysLeft >= 0
+                            ? `  •  ${daysLeft} ${t('days')}`
+                            : ''}
+                        </Text>
+                      </View>
+                      <Text style={styles.occasionRowArrow}>›</Text>
+                    </TouchableOpacity>
+                  );
+                }}
+              />
+            ) : (
+              <View style={styles.occasionEmptyWrap}>
+                <Text style={styles.occasionEmptyEmoji}>🎈</Text>
+                <Text style={styles.occasionEmptyTitle}>
+                  {t("You haven't created any occasions yet")}
+                </Text>
+                <Text style={styles.occasionEmptySubtitle}>
+                  {t('Create one to add this service to it')}
+                </Text>
+              </View>
+            )}
+
+            <AppButton
+              text={t('Create New Occasion')}
+              onPress={() => {
+                setShowOccasionModal(false);
+                navigation.navigate(config.routes.CREATE_OCCASION);
+              }}
+              buttonStyle={styles.occasionCreateBtn}
+            />
+            <TouchableOpacity
+              onPress={() => setShowOccasionModal(false)}
+              style={styles.occasionCancelBtn}>
+              <Text style={styles.occasionCancelText}>{t('Cancel')}</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 };
@@ -1071,6 +1258,155 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: config.colors.BACKGROUNDCOLOR,
+  },
+  // ── Bottom action row (Add to Occasion + Add to Cart) ──
+  bottomActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 20,
+    marginHorizontal: 0,
+  },
+  addToOccasionBtn: {
+    flex: 1,
+    borderRadius: 10,
+    height: 48,
+    borderWidth: 1.5,
+    borderColor: config.colors.orangeColor,
+    backgroundColor: config.colors.white,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  addToOccasionText: {
+    color: config.colors.orangeColor,
+    fontSize: 14,
+    textAlign: 'center',
+    fontFamily: config.fonts.Poppins_SemiBold,
+    lineHeight: 22,
+  },
+  addToCartBtn: {
+    flex: 1,
+    marginHorizontal: 0,
+    marginVertical: 0,
+  },
+  // ── Add-to-Occasion modal ──
+  occasionModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
+  },
+  occasionSheet: {
+    backgroundColor: config.colors.white,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: Platform.OS === 'ios' ? 36 : 20,
+  },
+  occasionSheetHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: config.colors.borderColor,
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  occasionSheetTitle: {
+    fontFamily: config.fonts.Poppins_SemiBold,
+    fontSize: 18,
+    color: config.colors.Black,
+    marginBottom: 4,
+  },
+  occasionSheetSubtitle: {
+    fontFamily: config.fonts.Poppins_Regular,
+    fontSize: 13,
+    color: config.colors.Gray,
+    marginBottom: 16,
+    lineHeight: 20,
+  },
+  occasionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: config.colors.BACKGROUNDCOLOR,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    marginBottom: 10,
+    overflow: 'hidden',
+  },
+  occasionRowAccent: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: 4,
+    left: 0,
+  },
+  occasionRowIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: config.colors.creamColor,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+    marginLeft: 8,
+  },
+  occasionRowName: {
+    fontFamily: config.fonts.Poppins_SemiBold,
+    fontSize: 14,
+    color: config.colors.Black,
+    lineHeight: 20,
+  },
+  occasionRowDate: {
+    fontFamily: config.fonts.Poppins_Regular,
+    fontSize: 12,
+    color: config.colors.Gray,
+    lineHeight: 18,
+    marginTop: 2,
+  },
+  occasionRowArrow: {
+    fontSize: 22,
+    color: config.colors.Gray,
+    paddingHorizontal: 6,
+    transform: [{rotate: I18nManager.isRTL ? '180deg' : '0deg'}],
+  },
+  occasionEmptyWrap: {
+    alignItems: 'center',
+    paddingVertical: 18,
+  },
+  occasionEmptyEmoji: {
+    fontSize: 40,
+    marginBottom: 8,
+  },
+  occasionEmptyTitle: {
+    fontFamily: config.fonts.Poppins_SemiBold,
+    fontSize: 15,
+    color: config.colors.Black,
+    textAlign: 'center',
+    marginBottom: 4,
+    paddingHorizontal: 20,
+  },
+  occasionEmptySubtitle: {
+    fontFamily: config.fonts.Poppins_Regular,
+    fontSize: 13,
+    color: config.colors.Gray,
+    textAlign: 'center',
+    paddingHorizontal: 20,
+    lineHeight: 20,
+  },
+  occasionCreateBtn: {
+    marginTop: 10,
+    marginHorizontal: 0,
+  },
+  occasionCancelBtn: {
+    alignItems: 'center',
+    paddingVertical: 12,
+    marginTop: 2,
+  },
+  occasionCancelText: {
+    fontFamily: config.fonts.Poppins_Medium,
+    fontSize: 14,
+    color: config.colors.Gray,
   },
   bgImg: {
     width: Dimensions.get('window').width,

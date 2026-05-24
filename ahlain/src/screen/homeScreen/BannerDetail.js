@@ -150,7 +150,7 @@ const BannerDetail = ({navigation, route}) => {
   };
   const callShareApi = async id => {
     // const getLink = await generateLink();
-    const link = 'https://anasa.site:2053/combo/' + id;
+    const link = `${config.constants.PUBLIC_WEB_ORIGIN}/combo/${id}`;
     try {
       Share.share({
         message: link,

@@ -78,7 +78,7 @@ const Categories = ({navigation, route}) => {
         key={index}
         style={{
           backgroundColor: config.colors.white,
-          marginBottom: 40,
+          marginBottom: 12,
           flexDirection: 'row',
           justifyContent: 'space-between',
           alignItems: 'center',
@@ -431,11 +431,11 @@ const Categories = ({navigation, route}) => {
       <View
         style={{
           flex: 1,
-          paddingHorizontal: 10,
+          paddingHorizontal: 18,
         }}>
         <ScrollView
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{paddingVertical: 15}}>
+          contentContainerStyle={{paddingVertical: 12}}>
           <View
             style={{
               flexDirection: 'row',

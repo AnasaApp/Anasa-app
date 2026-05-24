@@ -55,4 +55,5 @@ export default {
   MY_OCCASIONS: 'MyOccasions',
   CREATE_OCCASION: 'CreateOccasion',
   OCCASION_PLANNING_TYPE: 'OccasionPlanningType',
+  OCCASION_VIEW: 'OccasionView',
 };

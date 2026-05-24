@@ -58,6 +58,7 @@ import MyEarnings from '../screen/myEarnings/MyEarnings';
 import MyOccasions from '../screen/myOccasions/MyOccasions';
 import CreateOccasion from '../screen/myOccasions/CreateOccasion';
 import OccasionPlanningType from '../screen/myOccasions/OccasionPlanningType';
+import OccasionView from '../screen/myOccasions/OccasionView';
 
 const Stack = createStackNavigator();
 
@@ -213,6 +214,10 @@ function RootNavigation() {
         <Stack.Screen
           component={OccasionPlanningType}
           name={config.routes.OCCASION_PLANNING_TYPE}
+        />
+        <Stack.Screen
+          component={OccasionView}
+          name={config.routes.OCCASION_VIEW}
         />
       </Stack.Navigator>
     </NavigationContainer>
