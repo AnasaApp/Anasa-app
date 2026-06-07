@@ -57,28 +57,26 @@ import SwiperFlatList from 'react-native-swiper-flatlist';
 import FooterComponent from '../../conponents/FooterComponent';
 import {AppButton, AppTextInput} from '../../conponents';
 import AppImage from '../../conponents/AppImage';
+import SkeltonLoader from '../../conponents/SkeltonLoader';
 import Snackbar from 'react-native-snackbar';
 import {goToLogin} from '../../conponents/NavigationRef';
+import OccasionDateStatusTag from '../../conponents/OccasionDateStatusTag';
+import {
+  getPartyDisplayName,
+  getPartyTypeEmoji,
+  getPartyTypeLabel,
+  formatPartyDatesLine,
+  enrichPartyWithCachedMeta,
+  getPartyDateStatus,
+  isPartyDateExpired,
+} from '../../utils/partyHelpers';
+import usePartyMetaCache from '../../utils/usePartyMetaCache';
 
 const RECOMMENDED_PAGE_SIZE = 4;
+const HEADER_SKELETON_COLOR = 'rgba(255,255,255,0.35)';
+const SCREEN_WIDTH = Dimensions.get('window').width;
 
-// Two demo occasions shown at the top of "My Occasions". They use real
-// services (pulled from the recommended list already in redux) so the
-// "Add to Cart" action on the view page actually works against the backend.
-const DUMMY_OCCASIONS_META = [
-  {
-    _id: 'dummy-occasion-birthday',
-    name: 'My Birthday Bash',
-    emoji: '🎂',
-    addDays: 15,
-  },
-  {
-    _id: 'dummy-occasion-anniversary',
-    name: 'Wedding Anniversary',
-    emoji: '💍',
-    addDays: 45,
-  },
-];
+const isApiLoading = (data, error) => data == null && error == null;
 
 const HomeScreen = ({navigation}) => {
   const {t, i18n} = useTranslation();
@@ -90,12 +88,17 @@ const HomeScreen = ({navigation}) => {
     PopularCategoriesReducer.selectPopularCategoriesData,
   );
   const TopRatedResponse = useSelector(TopRatedReducer.selectTopRatedData);
+  const TopRatedError = useSelector(TopRatedReducer.selectTopRatedResponse);
   const MyProfileResponse = useSelector(MyProfileReducer.selectMyProfileData);
+  const MyProfileError = useSelector(MyProfileReducer.selectMyProfileResponse);
   const EventDateTimeResponse = useSelector(
     EventDateTimeReducer.selectEventDateTimeData,
   );
   const GetMarketingOffersResponse = useSelector(
     GetMarketingOffersReducer.selectGetMarketingOffersData,
+  );
+  const GetMarketingOffersError = useSelector(
+    GetMarketingOffersReducer.selectGetMarketingOffersResponse,
   );
   const ChangeLanguageResponse = useSelector(
     ChangeLanguageReducer.selectChangeLanguageData,
@@ -104,17 +107,51 @@ const HomeScreen = ({navigation}) => {
   const GetRecommendedResponse = useSelector(
     GetRecommendedReducer.selectGetRecommendedData,
   );
+  const GetRecommendedError = useSelector(
+    GetRecommendedReducer.selectGetRecommendedResponse,
+  );
   const GetOccasionsResponse = useSelector(
     GetOccasionsReducer.selectGetOccasionsData,
   );
+  const GetOccasionsError = useSelector(
+    GetOccasionsReducer.selectGetOccasionsResponse,
+  );
+  const anasaOccasionsList = GetOccasionsResponse?.results?.occasions ?? [];
+  const recommendedServicesList =
+    GetRecommendedResponse?.results?.services ?? [];
+  const anasaOccasionsLoading = isApiLoading(
+    GetOccasionsResponse,
+    GetOccasionsError,
+  );
+  const recommendedLoading = isApiLoading(
+    GetRecommendedResponse,
+    GetRecommendedError,
+  );
+  const marketingOffersLoading = isApiLoading(
+    GetMarketingOffersResponse,
+    GetMarketingOffersError,
+  );
+  const topRatedLoading = isApiLoading(TopRatedResponse, TopRatedError);
   const GetMyOccasionsResponse = useSelector(
     GetMyOccasionsReducer.selectGetMyOccasionsData,
+  );
+  const GetMyOccasionsError = useSelector(
+    GetMyOccasionsReducer.selectGetMyOccasionsResponse,
   );
 
   const [userLoggedIn, setUserLoggedIn] = useState(false);
   const [recommendedVisibleCount, setRecommendedVisibleCount] = useState(
     RECOMMENDED_PAGE_SIZE,
   );
+
+  const profileBuyer = MyProfileResponse?.results?.buyer;
+  const isProfileLoading =
+    userLoggedIn &&
+    !MyProfileError &&
+    (MyProfileResponse == null || !profileBuyer?.full_name);
+  const myOccasionsLoading =
+    userLoggedIn &&
+    isApiLoading(GetMyOccasionsResponse, GetMyOccasionsError);
 
   // Run `action` if logged in, otherwise bounce to the auth flow.
   // Used by sections (e.g. My Occasions) that are visible to guests but
@@ -127,35 +164,29 @@ const HomeScreen = ({navigation}) => {
     }
   };
 
-  // Build the demo occasions on top of any real ones from the backend.
-  // Services attached to the dummies are sliced from the live recommended
-  // list so each dummy points to actual services from the catalog.
-  const dummyOccasions = useMemo(() => {
-    const pool = GetRecommendedResponse?.results?.services || [];
-    return DUMMY_OCCASIONS_META.map((meta, i) => ({
-      _id: meta._id,
-      name: meta.name,
-      emoji: meta.emoji,
-      isDummy: true,
-      date: require('moment')().add(meta.addDays, 'days').toISOString(),
-      services: pool.slice(i * 2, i * 2 + 2),
-    }));
-  }, [GetRecommendedResponse]);
+  const partyMetaVersion = usePartyMetaCache();
 
-  const myOccasionsList = useMemo(() => {
-    const real = GetMyOccasionsResponse?.results?.occasions || [];
-    return [...dummyOccasions, ...real];
-  }, [dummyOccasions, GetMyOccasionsResponse]);
+  // User-created parties (getParties). Anasa Occasions catalog uses getOccasions.
+  const myOccasionsList = useMemo(
+    () =>
+      (GetMyOccasionsResponse?.results?.parties ?? []).map(
+        enrichPartyWithCachedMeta,
+      ),
+    [GetMyOccasionsResponse, partyMetaVersion],
+  );
 
-  // Tap behavior: if the occasion already has services attached, open the
-  // services view + Add to Cart screen; otherwise go to the planning chooser.
-  const openOccasion = occasion => {
-    if (occasion?.services?.length > 0) {
-      navigation.navigate(config.routes.OCCASION_VIEW, {occasion});
-    } else {
-      navigation.navigate(config.routes.OCCASION_PLANNING_TYPE, {occasion});
-    }
+  const openOccasion = party => {
+    navigation.navigate(config.routes.OCCASION_VIEW, {occasion: party});
   };
+
+  const fetchMyParties = useCallback(() => {
+    if (userLoggedIn) {
+      dispatch({
+        type: SagaActions.GET_MY_OCCASIONS,
+        payload: {page: 1, pageSize: 50},
+      });
+    }
+  }, [userLoggedIn, dispatch]);
 
   const colorScheme = useColorScheme();
   const appState = useRef(AppState.currentState);
@@ -207,6 +238,11 @@ const HomeScreen = ({navigation}) => {
     callHomePageApi();
     checkUserLoggedIn();
   }, []);
+
+  useEffect(() => {
+    fetchMyParties();
+  }, [userLoggedIn, fetchMyParties]);
+
   const checkUserLoggedIn = async () => {
     const res = await AsyncStorage.getItem(config.AsyncKeys.USER_LOGGED_IN);
     const result = JSON.parse(res);
@@ -214,10 +250,15 @@ const HomeScreen = ({navigation}) => {
     if (result == true) {
       changeLanguageApi();
       callMyProfileApi();
-      dispatch({type: SagaActions.GET_MY_OCCASIONS, payload: ''});
+      dispatch({
+        type: SagaActions.GET_MY_OCCASIONS,
+        payload: {page: 1, pageSize: 50},
+      });
     } else {
-      dispatch(MyProfileReducer.removeMyProfileResponse());
       dispatch(GetMyCartReducer.removeGetMyCartResponse());
+      dispatch(GetMyOccasionsReducer.removeGetMyOccasionsResponse());
+      dispatch(GetOccasionsReducer.removeGetOccasionsResponse());
+      dispatch(MyProfileReducer.removeMyProfileResponse());
     }
   };
   const callHomePageApi = () => {
@@ -270,14 +311,20 @@ const HomeScreen = ({navigation}) => {
   useFocusEffect(
     useCallback(() => {
       requestLocationPermission();
-
       navigateForNotification();
-    }, []),
+      fetchMyParties();
+    }, [fetchMyParties]),
   );
 
   const callMyProfileApi = () => {
     dispatch({type: SagaActions.MY_PROFILE, payload: ''});
   };
+
+  useEffect(() => {
+    if (userLoggedIn) {
+      callMyProfileApi();
+    }
+  }, [userLoggedIn]);
   useEffect(() => {
     if (MyProfileResponse != null) {
       if (MyProfileResponse?.error == false) {
@@ -646,7 +693,7 @@ const HomeScreen = ({navigation}) => {
       </TouchableOpacity>
     );
   };
-  const renderOccasionsItem = ({item, index}) => {
+  const renderAnasaOccasionItem = ({item, index}) => {
     return (
       <TouchableOpacity
         activeOpacity={0.8}
@@ -684,6 +731,7 @@ const HomeScreen = ({navigation}) => {
             textAlign: 'center',
             alignSelf: 'center',
             marginVertical: 5,
+            paddingHorizontal: 6,
           }}>
           {I18nManager?.isRTL ? item?.name_ar : item?.name_en}
         </Text>
@@ -695,8 +743,8 @@ const HomeScreen = ({navigation}) => {
       <View
         key={index}
         style={{
-          paddingHorizontal: 10,
-          width: config.constants.Width / 2,
+          flexBasis: '50%',
+          paddingHorizontal: 5,
         }}>
         <TouchableOpacity
           activeOpacity={0.8}
@@ -1068,6 +1116,11 @@ const HomeScreen = ({navigation}) => {
           <DateTimePickerModal
             isVisible={isFromDatePickerVisible}
             mode="date"
+            date={
+              schedule_from_date
+                ? new Date(schedule_from_date)
+                : new Date()
+            }
             onConfirm={handleFromDateConfirm}
             onCancel={hideFromDatePicker}
             minimumDate={new Date()}
@@ -1078,6 +1131,7 @@ const HomeScreen = ({navigation}) => {
             isVisible={show_from_time}
             mode="time"
             display="spinner"
+            date={new Date()}
             onConfirm={showFromTimeConfirm}
             onCancel={cancelFromtime}
             isDarkModeEnabled={colorScheme == 'dark' ? true : false}
@@ -1087,6 +1141,11 @@ const HomeScreen = ({navigation}) => {
           <DateTimePickerModal
             isVisible={isEndDatePickerVisible}
             mode="date"
+            date={
+              schedule_end_date
+                ? new Date(schedule_end_date)
+                : new Date()
+            }
             onConfirm={handleEndDateConfirm}
             onCancel={hideEndDatePicker}
             minimumDate={new Date()}
@@ -1096,6 +1155,7 @@ const HomeScreen = ({navigation}) => {
             isVisible={show_end_time}
             mode="time"
             display="spinner"
+            date={new Date()}
             onConfirm={showEndTimeConfirm}
             onCancel={cancelEndtime}
             isDarkModeEnabled={colorScheme == 'dark' ? true : false}
@@ -1124,7 +1184,14 @@ const HomeScreen = ({navigation}) => {
             <RefreshControl
               refreshing={false}
               colors={[config.colors.orangeColor, config.colors.orangeColor]}
-              onRefresh={() => callHomePageApi()}
+              onRefresh={() => {
+                callHomePageApi();
+                callHomePageApi();
+                fetchMyParties();
+                if (userLoggedIn) {
+                  callMyProfileApi();
+                }
+              }}
             />
           }>
           <View
@@ -1134,7 +1201,9 @@ const HomeScreen = ({navigation}) => {
               borderBottomRightRadius: 24,
               paddingHorizontal: 20,
               paddingTop: Platform.OS == 'ios' ? 60 : 20,
-              paddingBottom: 20,
+              paddingBottom: 12,
+              zIndex: 10,
+              elevation: 10,
             }}>
             <View
               style={{
@@ -1149,55 +1218,80 @@ const HomeScreen = ({navigation}) => {
                   alignItems: 'center',
                   justifyContent: 'space-between',
                 }}>
-                <TouchableOpacity
-                  activeOpacity={0.8}
-                  onPress={() => {
-                    navigation.navigate(config.routes.SIDE_BAR);
-                  }}>
-                  <Image
-                    style={{
-                      width: 42,
-                      height: 42,
-                      borderRadius: 25,
-                      resizeMode: 'cover',
-                    }}
-                    resizeMode="cover"
-                    source={
-                      MyProfileResponse?.results?.buyer?.profile_image
-                        ? {
-                            uri: MyProfileResponse?.results?.buyer
-                              ?.profile_image,
-                          }
-                        : require('../../assets/images/user_icon.png')
-                    }
-                  />
-                </TouchableOpacity>
-                <View
-                  style={{
-                    marginLeft: 15,
-                  }}>
-                  <Text
-                    style={{
-                      fontFamily: config.fonts.Poppins_Regular,
-                      fontSize: 14,
-                      lineHeight: 22,
-                      color: config.colors.white + 70,
-                      textAlign: 'left',
-                    }}>
-                    {`${t(`Hello`)}!`}
-                  </Text>
-                  <Text
-                    style={{
-                      fontFamily: config.fonts.Poppins_SemiBold,
-                      fontSize: 16,
-                      lineHeight: 24,
-                      color: config.colors.white,
-                      textAlign: 'left',
-                    }}>
-                    {MyProfileResponse?.results?.buyer?.full_name ??
-                      `${t(`Guest`)}!`}
-                  </Text>
-                </View>
+                {isProfileLoading ? (
+                  <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                    <SkeltonLoader
+                      noSafeArea
+                      variant="circle"
+                      width={42}
+                      height={42}
+                      skeletonColor={HEADER_SKELETON_COLOR}
+                    />
+                    <View style={{marginLeft: 15}}>
+                      <SkeltonLoader
+                        noSafeArea
+                        variant="rectangle"
+                        width={72}
+                        height={14}
+                        skeletonColor={HEADER_SKELETON_COLOR}
+                      />
+                      <View style={{marginTop: 8}}>
+                        <SkeltonLoader
+                          noSafeArea
+                          variant="rectangle"
+                          width={130}
+                          height={18}
+                          skeletonColor={HEADER_SKELETON_COLOR}
+                        />
+                      </View>
+                    </View>
+                  </View>
+                ) : (
+                  <>
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={() => {
+                        navigation.navigate(config.routes.SIDE_BAR);
+                      }}>
+                      <Image
+                        style={{
+                          width: 42,
+                          height: 42,
+                          borderRadius: 25,
+                          resizeMode: 'cover',
+                        }}
+                        resizeMode="cover"
+                        source={
+                          profileBuyer?.profile_image
+                            ? {uri: profileBuyer.profile_image}
+                            : require('../../assets/images/user_icon.png')
+                        }
+                      />
+                    </TouchableOpacity>
+                    <View style={{marginLeft: 15}}>
+                      <Text
+                        style={{
+                          fontFamily: config.fonts.Poppins_Regular,
+                          fontSize: 14,
+                          lineHeight: 22,
+                          color: config.colors.white + 70,
+                          textAlign: 'left',
+                        }}>
+                        {`${t(`Hello`)}!`}
+                      </Text>
+                      <Text
+                        style={{
+                          fontFamily: config.fonts.Poppins_SemiBold,
+                          fontSize: 16,
+                          lineHeight: 24,
+                          color: config.colors.white,
+                          textAlign: 'left',
+                        }}>
+                        {profileBuyer?.full_name ?? `${t(`Guest`)}!`}
+                      </Text>
+                    </View>
+                  </>
+                )}
               </View>
               <View
                 style={{
@@ -1337,11 +1431,25 @@ const HomeScreen = ({navigation}) => {
             </TouchableOpacity>
           </View>
 
-          {GetMarketingOffersResponse?.results?.offer?.length > 0 && (
+          {marketingOffersLoading ? (
+            <View style={{marginTop: -14, paddingHorizontal: 16}}>
+              <SkeltonLoader
+                noSafeArea
+                variant="rectangle"
+                width={SCREEN_WIDTH - 32}
+                height={Dimensions.get('screen').height / 4}
+                borderRadius={12}
+                borderColor={config.colors.Gray}
+                borderWidth={1}
+                borderStyle={{borderRadius: 12}}
+                skeletonColor={config.colors.placeHolderColor}
+              />
+            </View>
+          ) : GetMarketingOffersResponse?.results?.offer?.length > 0 ? (
             <View
               style={{
-                height: Dimensions.get('screen').height / 3.4,
-                marginTop: 20,
+                height: Dimensions.get('screen').height / 3.9,
+                marginTop: 12,
               }}>
               <SwiperFlatList
                 autoplay
@@ -1386,6 +1494,8 @@ const HomeScreen = ({navigation}) => {
                         style={{
                           width: Dimensions.get('screen').width,
                           height: Dimensions.get('screen').height / 4,
+                          borderTopLeftRadius: 24,
+                          borderTopRightRadius: 24,
                         }}
                         source={{
                           uri: item?.image,
@@ -1399,9 +1509,30 @@ const HomeScreen = ({navigation}) => {
                 }}
               />
             </View>
-          )}
+          ) : null}
 
-          {TopRatedResponse?.results?.newVendor?.length > 0 && (
+          {topRatedLoading ? (
+            <>
+              <View style={[styles.categoriesCss, {marginTop: 20}]}>
+                <SkeltonLoader
+                  noSafeArea
+                  variant="rectangle"
+                  width={120}
+                  height={18}
+                />
+              </View>
+              <View style={{paddingHorizontal: 10, paddingTop: 10}}>
+                <SkeltonLoader
+                  noSafeArea
+                  variant="rectangle_multiple"
+                  direction="row"
+                  count={3}
+                  width={110}
+                  height={130}
+                />
+              </View>
+            </>
+          ) : TopRatedResponse?.results?.newVendor?.length > 0 ? (
             <>
               <View style={styles.categoriesCss}>
                 <Text
@@ -1426,13 +1557,13 @@ const HomeScreen = ({navigation}) => {
                 renderItem={renderItem}
                 horizontal={true}
                 showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{paddingHorizontal: 10, paddingTop: 10}}
+                contentContainerStyle={{paddingHorizontal: 10, paddingTop: 12}}
                 style={{
                   alignSelf: 'flex-start',
                 }}
               />
             </>
-          )}
+          ) : null}
           <View
             style={{
               backgroundColor: config.colors.white,
@@ -1537,27 +1668,25 @@ const HomeScreen = ({navigation}) => {
                   onPress={requireAuth(() =>
                     navigation.navigate(config.routes.MY_OCCASIONS),
                   )}
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    backgroundColor: config.colors.creamColor,
-                    borderRadius: 20,
-                    paddingHorizontal: 12,
-                    paddingVertical: 5,
-                  }}>
-                  <Text
-                    style={{
-                      fontFamily: config.fonts.Poppins_SemiBold,
-                      fontSize: 13,
-                      color: config.colors.orangeColor,
-                      marginRight: 4,
-                    }}>
+                  style={styles.myOccasionOutlineBtn}>
+                  <Text style={styles.myOccasionOutlineBtnText}>
                     {t('View All')}
                   </Text>
                 </TouchableOpacity>
               </View>
 
-              {myOccasionsList?.length > 0 ? (
+              {myOccasionsLoading ? (
+                <View style={{paddingHorizontal: 16, paddingBottom: 4}}>
+                  <SkeltonLoader
+                    noSafeArea
+                    variant="rectangle_multiple"
+                    direction="row"
+                    count={2}
+                    width={168}
+                    height={130}
+                  />
+                </View>
+              ) : myOccasionsList?.length > 0 ? (
                 <FlatList
                   data={myOccasionsList}
                   horizontal
@@ -1566,99 +1695,89 @@ const HomeScreen = ({navigation}) => {
                   contentContainerStyle={{paddingHorizontal: 16, paddingBottom: 4}}
                   style={{alignSelf: 'flex-start'}}
                   renderItem={({item, index}) => {
-                    const daysLeft = item?.date
-                      ? require('moment')(item.date).diff(
-                          require('moment')(),
-                          'days',
-                        )
-                      : null;
+                    const party = enrichPartyWithCachedMeta(item);
+                    const displayName = getPartyDisplayName(party);
+                    const typeLabel = getPartyTypeLabel(party?.type);
+                    const emoji = getPartyTypeEmoji(party?.type);
+                    const dateLabel = formatPartyDatesLine(party);
+                    const dateStatus = getPartyDateStatus(party);
+                    const isExpired = isPartyDateExpired(party);
                     const accentColors = [
                       config.colors.orangeColor,
                       config.colors.buttonColor,
                       config.colors.yellowColor,
                     ];
+                    const accentColor = isExpired
+                      ? config.colors.Gray
+                      : accentColors[index % 3];
                     return (
-                      <TouchableOpacity
-                        activeOpacity={0.85}
+                      <View
                         key={index}
-                        onPress={requireAuth(() => openOccasion(item))}
-                        style={{
-                          backgroundColor: config.colors.white,
-                          borderRadius: 14,
-                          marginRight: 12,
-                          width: 155,
-                          overflow: 'hidden',
-                          elevation: 3,
-                          shadowColor: '#000',
-                          shadowOffset: {width: 0, height: 2},
-                          shadowOpacity: 0.07,
-                          shadowRadius: 5,
-                        }}>
+                        style={[
+                          styles.myOccasionCard,
+                          isExpired && styles.myOccasionCardExpired,
+                        ]}>
                         <View
-                          style={{
-                            height: 5,
-                            backgroundColor: accentColors[index % 3],
-                          }}
+                          style={[
+                            styles.myOccasionCardAccent,
+                            {backgroundColor: accentColor},
+                          ]}
                         />
-                        <View style={{padding: 12}}>
-                          <View
-                            style={{
-                              width: 38,
-                              height: 38,
-                              borderRadius: 19,
-                              backgroundColor: config.colors.creamColor,
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              marginBottom: 8,
-                            }}>
-                            <Text style={{fontSize: 20}}>
-                              {item?.emoji ?? '🎂'}
-                            </Text>
+                        <TouchableOpacity
+                          activeOpacity={0.85}
+                          onPress={requireAuth(() => openOccasion(party))}
+                          style={styles.myOccasionCardBody}>
+                          <View style={styles.myOccasionCardHeader}>
+                            <View
+                              style={[
+                                styles.myOccasionIconWrap,
+                                {borderColor: accentColor + '30'},
+                              ]}>
+                              <Text style={styles.myOccasionEmoji}>{emoji}</Text>
+                            </View>
+                            {dateStatus ? (
+                              <OccasionDateStatusTag
+                                party={party}
+                                status={dateStatus}
+                                style={styles.myOccasionStatusTag}
+                              />
+                            ) : null}
                           </View>
                           <Text
                             numberOfLines={1}
-                            style={{
-                              fontFamily: config.fonts.Poppins_SemiBold,
-                              fontSize: 13,
-                              color: config.colors.Black,
-                              lineHeight: 20,
-                            }}>
-                            {item?.name}
+                            style={styles.myOccasionName}>
+                            {displayName}
                           </Text>
-                          <Text
-                            style={{
-                              fontFamily: config.fonts.Poppins_Regular,
-                              fontSize: 11,
-                              color: config.colors.Gray,
-                              lineHeight: 16,
-                              marginTop: 2,
-                            }}>
-                            {item?.date
-                              ? require('moment')(item.date).format('DD MMM YYYY')
-                              : ''}
-                          </Text>
-                          {daysLeft !== null && daysLeft >= 0 && (
-                            <View
-                              style={{
-                                marginTop: 8,
-                                backgroundColor: config.colors.creamColor,
-                                borderRadius: 8,
-                                paddingHorizontal: 8,
-                                paddingVertical: 3,
-                                alignSelf: 'flex-start',
-                              }}>
+                          {typeLabel ? (
+                            <View style={styles.myOccasionTypePill}>
                               <Text
-                                style={{
-                                  fontFamily: config.fonts.Poppins_Medium,
-                                  fontSize: 11,
-                                  color: config.colors.orangeColor,
-                                }}>
-                                {daysLeft} {t('days')}
+                                numberOfLines={1}
+                                style={styles.myOccasionTypeText}>
+                                {typeLabel}
                               </Text>
                             </View>
-                          )}
-                        </View>
-                      </TouchableOpacity>
+                          ) : null}
+                          {dateLabel ? (
+                            <View style={styles.myOccasionDateRow}>
+                              <Image
+                                source={require('../../assets/images/calender.png')}
+                                style={[
+                                  styles.myOccasionDateIcon,
+                                  isExpired && styles.myOccasionDateIconExpired,
+                                ]}
+                              />
+                              <Text
+                                numberOfLines={1}
+                                style={[
+                                  styles.myOccasionDateText,
+                                  isExpired && styles.myOccasionDateTextExpired,
+                                ]}>
+                                {dateLabel}
+                              </Text>
+                            </View>
+                          ) : null}
+                        </TouchableOpacity>
+                      </View>
                     );
                   }}
                 />
@@ -1722,23 +1841,8 @@ const HomeScreen = ({navigation}) => {
                   onPress={requireAuth(() =>
                     navigation.navigate(config.routes.CREATE_OCCASION),
                   )}
-                  style={{
-                    alignSelf: 'flex-start',
-                    marginLeft: 16,
-                    marginTop: 8,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    backgroundColor: config.colors.creamColor,
-                    borderRadius: 20,
-                    paddingHorizontal: 14,
-                    paddingVertical: 7,
-                  }}>
-                  <Text
-                    style={{
-                      fontFamily: config.fonts.Poppins_SemiBold,
-                      fontSize: 13,
-                      color: config.colors.orangeColor,
-                    }}>
+                  style={[styles.myOccasionOutlineBtn, styles.myOccasionAddBtn]}>
+                  <Text style={styles.myOccasionOutlineBtnText}>
                     {'+ ' + t('Add New')}
                   </Text>
                 </TouchableOpacity>
@@ -1764,14 +1868,43 @@ const HomeScreen = ({navigation}) => {
               {t('Anasa Occasions')}
             </Text>
           </View>
-          <FlatList
-            data={GetOccasionsResponse?.results?.occasions}
-            renderItem={renderOccasionsItem}
-            horizontal={true}
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{paddingHorizontal: 10, paddingTop: 10}}
-            style={{alignSelf: 'flex-start'}}
-          />
+          {anasaOccasionsLoading ? (
+            <View style={{paddingHorizontal: 10, paddingTop: 10}}>
+              <SkeltonLoader
+                noSafeArea
+                variant="rectangle_multiple"
+                direction="row"
+                count={4}
+                width={150}
+                height={170}
+              />
+            </View>
+          ) : anasaOccasionsList.length > 0 ? (
+            <FlatList
+              data={anasaOccasionsList}
+              renderItem={renderAnasaOccasionItem}
+              keyExtractor={(item, index) =>
+                item?._id ? String(item._id) : `occasion-${index}`
+              }
+              horizontal={true}
+              nestedScrollEnabled={true}
+              removeClippedSubviews={false}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{paddingHorizontal: 10, paddingTop: 10}}
+              style={{alignSelf: 'flex-start'}}
+            />
+          ) : (
+            <Text
+              style={{
+                fontFamily: config.fonts.Poppins_Regular,
+                fontSize: 13,
+                color: config.colors.Gray,
+                paddingHorizontal: 20,
+                paddingTop: 10,
+              }}>
+              {t('No Data available')}
+            </Text>
+          )}
 
           {/* ── Anasa Recommends Section ── */}
           <View
@@ -1793,24 +1926,45 @@ const HomeScreen = ({navigation}) => {
               {t('Anasa Recommends')}
             </Text>
           </View>
-          {GetRecommendedResponse?.results?.services?.length > 0 && (
+          {recommendedLoading ? (
+            <View
+              style={{
+                flexDirection: 'row',
+                flexWrap: 'wrap',
+                paddingHorizontal: 10,
+                paddingTop: 4,
+              }}>
+              {[0, 1, 2, 3].map(i => (
+                <View
+                  key={i}
+                  style={{
+                    width: SCREEN_WIDTH / 2 - 15,
+                    paddingHorizontal: 5,
+                    marginBottom: 12,
+                  }}>
+                  <SkeltonLoader
+                    noSafeArea
+                    variant="rectangle"
+                    width={SCREEN_WIDTH / 2 - 25}
+                    height={180}
+                  />
+                </View>
+              ))}
+            </View>
+          ) : recommendedServicesList.length > 0 ? (
             <>
-              <FlatList
-                data={GetRecommendedResponse?.results?.services?.slice(
-                  0,
-                  recommendedVisibleCount,
-                )}
-                renderItem={renderRecommendItem}
-                keyExtractor={(item, index) => item?._id + index.toString()}
-                numColumns={2}
-                columnWrapperStyle={{
+              <View
+                style={{
+                  flexDirection: 'row',
+                  flexWrap: 'wrap',
                   paddingHorizontal: 10,
-                }}
-                showsVerticalScrollIndicator={false}
-                scrollEnabled={false}
-              />
-              {GetRecommendedResponse?.results?.services?.length >
-                recommendedVisibleCount && (
+                  justifyContent: 'space-between',
+                }}>
+                {recommendedServicesList
+                  .slice(0, recommendedVisibleCount)
+                  .map((item, index) => renderRecommendItem({item, index}))}
+              </View>
+              {recommendedServicesList.length > recommendedVisibleCount && (
                 <AppButton
                   text={t('Load More')}
                   onPress={() =>
@@ -1825,6 +1979,17 @@ const HomeScreen = ({navigation}) => {
                 />
               )}
             </>
+          ) : (
+            <Text
+              style={{
+                fontFamily: config.fonts.Poppins_Regular,
+                fontSize: 13,
+                color: config.colors.Gray,
+                paddingHorizontal: 20,
+                paddingTop: 4,
+              }}>
+              {t('No Data available')}
+            </Text>
           )}
         </ScrollView>
       </View>
@@ -1957,6 +2122,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
+    paddingTop: 10,
   },
   showAllText: {
     fontFamily: config.fonts.Poppins_Medium,
@@ -2042,6 +2208,121 @@ const styles = StyleSheet.create({
     width: 10,
     height: 10,
     marginHorizontal: 1,
+  },
+  myOccasionOutlineBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: config.colors.white,
+    borderWidth: 1,
+    borderColor: config.colors.orangeColor,
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+  },
+  myOccasionOutlineBtnText: {
+    fontFamily: config.fonts.Poppins_SemiBold,
+    fontSize: 13,
+    color: config.colors.orangeColor,
+  },
+  myOccasionAddBtn: {
+    alignSelf: 'flex-start',
+    marginLeft: 16,
+    marginTop: 10,
+  },
+  myOccasionCard: {
+    backgroundColor: config.colors.white,
+    borderRadius: 14,
+    marginRight: 12,
+    width: 168,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: config.colors.borderColor,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    position: 'relative',
+  },
+  myOccasionCardAccent: {
+    height: 3,
+    width: '100%',
+  },
+  myOccasionCardBody: {
+    padding: 14,
+  },
+  myOccasionCardExpired: {
+    backgroundColor: '#FAFAFA',
+  },
+  myOccasionCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  myOccasionIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: config.colors.creamColor,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  myOccasionEmoji: {
+    fontSize: 20,
+  },
+  myOccasionStatusTag: {
+    flexShrink: 0,
+    marginLeft: 8,
+    maxWidth: 96,
+  },
+  myOccasionName: {
+    fontFamily: config.fonts.Poppins_SemiBold,
+    fontSize: 14,
+    color: config.colors.Black,
+    lineHeight: 20,
+    marginBottom: 6,
+  },
+  myOccasionTypePill: {
+    alignSelf: 'flex-start',
+    backgroundColor: config.colors.BACKGROUNDCOLOR,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginBottom: 8,
+  },
+  myOccasionTypeText: {
+    fontFamily: config.fonts.Poppins_Medium,
+    fontSize: 10,
+    color: config.colors.Light_Black,
+    textTransform: 'capitalize',
+  },
+  myOccasionDateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  myOccasionDateIcon: {
+    width: 14,
+    height: 14,
+    resizeMode: 'contain',
+    marginRight: 5,
+    tintColor: config.colors.orangeColor,
+  },
+  myOccasionDateText: {
+    flex: 1,
+    fontFamily: config.fonts.Poppins_Medium,
+    fontSize: 11,
+    color: config.colors.Gray,
+    lineHeight: 16,
+  },
+  myOccasionDateTextExpired: {
+    color: '#B91C1C',
+  },
+  myOccasionDateIconExpired: {
+    tintColor: '#B91C1C',
   },
 });
 

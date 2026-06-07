@@ -28,6 +28,8 @@ import CountryPicker from 'react-native-country-picker-modal';
 import {useTranslation} from 'react-i18next';
 import DeviceInfo from 'react-native-device-info';
 import {goToLogin} from '../../conponents/NavigationRef';
+import {useFocusEffect} from '@react-navigation/native';
+import {logLoginFlow} from '../../utils/apiLogger';
 
 const LogIn = ({navigation}) => {
   const {t, i18n} = useTranslation();
@@ -40,7 +42,6 @@ const LogIn = ({navigation}) => {
     LoginUserReducer.selectLoginErrorResponse,
   );
 
-  console.log('LoginUserErrorResponse', LoginUserErrorResponse);
   const [phoneNumber, setphoneNumber] = useState('');
   const [password, setPassword] = useState('');
   const [secureEntry, setSecureEntry] = useState(true);
@@ -49,41 +50,79 @@ const LogIn = ({navigation}) => {
   const [callingCode, setCallingCode] = useState('966');
   const [isCalenderVisible, setIsCalenderVisible] = useState(false);
   const [seletion, setSelection] = useState({start: 0, end: 0});
+  useFocusEffect(
+    React.useCallback(() => {
+      dispatch(LoginUserReducer.resetLoginState());
+      logLoginFlow('SCREEN_FOCUS', 'cleared stale login state');
+    }, [dispatch]),
+  );
+
   useEffect(() => {
-    if (LoginUserResponse != null) {
-      if (LoginUserResponse?.error == false) {
-        if (LoginUserResponse?.results?.verifyAccount == true) {
-          navigation.navigate(config.routes.OTP_VERIFICATION, {
-            from: 'login',
-            userEmail: LoginUserResponse?.results?.buyer?.email,
-            userOtp: LoginUserResponse?.results?.buyer?.otp,
-          });
-        } else {
-          navigation.dispatch(
-            CommonActions.reset({
-              index: 0,
-              routes: [{name: config.routes.HOME_SCREEN}],
-            }),
-          );
-          AsyncStorage.setItem(
-            config.AsyncKeys.USER_LOGGED_IN,
-            JSON.stringify(true),
-          );
-          AsyncStorage.setItem(
-            config.AsyncKeys.USER_DATA,
-            JSON.stringify(LoginUserResponse?.results),
-          );
-        }
-      }
+    if (LoginUserResponse == null) {
+      return;
     }
+
+    logLoginFlow('UI_HANDLER', {
+      error: LoginUserResponse?.error,
+      hasToken: !!LoginUserResponse?.results?.token,
+      verifyAccount: LoginUserResponse?.results?.verifyAccount,
+    });
+
+    if (LoginUserResponse?.error !== false) {
+      Toast.show(
+        LoginUserResponse?.message ?? t('Login failed'),
+        Toast.LONG,
+      );
+      dispatch(LoginUserReducer.resetLoginState());
+      return;
+    }
+
+    const token = LoginUserResponse?.results?.token;
+    if (!token) {
+      logLoginFlow('UI_BLOCK_HOME', 'Missing token — not navigating to home');
+      Toast.show(t('Login failed: no access token received'), Toast.LONG);
+      dispatch(LoginUserReducer.resetLoginState());
+      return;
+    }
+
+    if (LoginUserResponse?.results?.verifyAccount === true) {
+      navigation.navigate(config.routes.OTP_VERIFICATION, {
+        from: 'login',
+        userEmail: LoginUserResponse?.results?.buyer?.email,
+        userOtp: LoginUserResponse?.results?.buyer?.otp,
+      });
+      dispatch(LoginUserReducer.resetLoginState());
+      return;
+    }
+
+    const persistAndGoHome = async () => {
+      await AsyncStorage.removeItem('IS_GUEST_USER');
+      await AsyncStorage.setItem(
+        config.AsyncKeys.USER_LOGGED_IN,
+        JSON.stringify(true),
+      );
+      await AsyncStorage.setItem(
+        config.AsyncKeys.USER_DATA,
+        JSON.stringify(LoginUserResponse?.results),
+      );
+      logLoginFlow('UI_NAVIGATE_HOME', {hasToken: true});
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [{name: config.routes.HOME_SCREEN}],
+        }),
+      );
+      dispatch(LoginUserReducer.resetLoginState());
+    };
+    persistAndGoHome();
   }, [LoginUserResponse]);
   useEffect(() => {
     if (LoginUserErrorResponse != null) {
+      logLoginFlow('UI_ERROR', LoginUserErrorResponse);
       if (LoginUserErrorResponse?.message != '') {
         Toast.show(LoginUserErrorResponse?.message, Toast.LONG);
-
-        dispatch(LoginUserReducer.removeLoginResponse());
       }
+      dispatch(LoginUserReducer.resetLoginState());
     }
   }, [LoginUserErrorResponse]);
 

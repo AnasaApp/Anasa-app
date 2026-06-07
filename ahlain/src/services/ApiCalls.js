@@ -202,6 +202,26 @@ export const ApiCalls = ({apiType}) => {
       requestUrl = ApiUrls.PLAN_FOR_ME_URL;
       break;
 
+    case SagaActions.GET_PARTY_TYPES:
+      requestType = 'POST';
+      requestUrl = ApiUrls.GET_PARTY_TYPES_URL;
+      break;
+
+    case SagaActions.GET_MY_OCCASIONS:
+      requestType = 'POST';
+      requestUrl = ApiUrls.GET_MY_OCCASIONS_URL;
+      break;
+
+    case SagaActions.CREATE_PARTY_SERVICE:
+      requestType = 'POST';
+      requestUrl = ApiUrls.CREATE_PARTY_SERVICE_URL;
+      break;
+
+    case SagaActions.ADD_PARTY_TO_CART:
+      requestType = 'POST';
+      requestUrl = ApiUrls.ADD_PARTY_TO_CART_URL;
+      break;
+
     // GET REQUESTS
     case SagaActions.MY_PROFILE:
       requestType = 'GET';
@@ -323,24 +343,29 @@ export const ApiCalls = ({apiType}) => {
       requestUrl = ApiUrls.GET_FAQ_URL;
       break;
 
-    case SagaActions.GET_OCCASIONS:
-      requestType = 'GET';
-      requestUrl = ApiUrls.GET_OCCASIONS_URL;
-      break;
-
     case SagaActions.VIEW_OCCASION:
       requestType = 'GET';
       requestUrl = ApiUrls.VIEW_OCCASION_URL;
       break;
 
+    case SagaActions.VIEW_PARTY:
+      requestType = 'GET';
+      requestUrl = ApiUrls.VIEW_PARTY_URL;
+      break;
+
+    case SagaActions.DELETE_PARTY:
+      requestType = 'GET';
+      requestUrl = ApiUrls.DELETE_PARTY_URL;
+      break;
+
+    case SagaActions.DELETE_PARTY_SERVICE:
+      requestType = 'GET';
+      requestUrl = ApiUrls.DELETE_PARTY_SERVICE_URL;
+      break;
+
     case SagaActions.RE_ORDER_BOOKING:
       requestType = 'GET';
       requestUrl = ApiUrls.RE_ORDER_BOOKING_URL;
-      break;
-
-    case SagaActions.GET_MY_OCCASIONS:
-      requestType = 'GET';
-      requestUrl = ApiUrls.GET_MY_OCCASIONS_URL;
       break;
 
     default:

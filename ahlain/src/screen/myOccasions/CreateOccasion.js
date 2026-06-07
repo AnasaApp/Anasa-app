@@ -1,4 +1,4 @@
-import React, {useEffect, useState, useCallback} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {
   View,
   Text,
@@ -8,11 +8,11 @@ import {
   StatusBar,
   ScrollView,
   Image,
-  Alert,
   useColorScheme,
   I18nManager,
   Platform,
   KeyboardAvoidingView,
+  ActivityIndicator,
 } from 'react-native';
 import {useDispatch, useSelector} from 'react-redux';
 import {useTranslation} from 'react-i18next';
@@ -24,23 +24,16 @@ import AppHeader from '../../conponents/AppHeader';
 import AppButton from '../../conponents/AppButton';
 import {
   CreateMyOccasionReducer,
+  GetPartyTypesReducer,
 } from '../../redux/reducers';
 import {SagaActions} from '../../redux/sagas/SagaActions';
+import {getPartyTypeLabel, rememberPartyMeta, mergePartyRecords, getPartyId} from '../../utils/partyHelpers';
 
-const OCCASION_TYPES = [
-  {id: 'birthday', label: 'Birthday', emoji: '🎂'},
-  {id: 'wedding', label: 'Wedding', emoji: '💍'},
-  {id: 'graduation', label: 'Graduation', emoji: '🎓'},
-  {id: 'anniversary', label: 'Anniversary', emoji: '💝'},
-  {id: 'babyshower', label: 'Baby Shower', emoji: '🍼'},
-  {id: 'corporate', label: 'Corporate', emoji: '🏢'},
-  {id: 'other', label: 'Other', emoji: '🎉'},
-];
-
-const CreateOccasion = ({navigation}) => {
+const CreateOccasion = ({navigation, route}) => {
   const {t} = useTranslation();
   const dispatch = useDispatch();
   const colorScheme = useColorScheme();
+  const preselectedTypeId = route?.params?.partyTypeId;
 
   const CreateMyOccasionResponse = useSelector(
     CreateMyOccasionReducer.selectCreateMyOccasionData,
@@ -48,27 +41,63 @@ const CreateOccasion = ({navigation}) => {
   const CreateMyOccasionError = useSelector(
     CreateMyOccasionReducer.selectCreateMyOccasionResponse,
   );
+  const GetPartyTypesData = useSelector(
+    GetPartyTypesReducer.selectGetPartyTypesData,
+  );
+  const GetPartyTypesError = useSelector(
+    GetPartyTypesReducer.selectGetPartyTypesResponse,
+  );
 
   const [occasionName, setOccasionName] = useState('');
+  const [occasionDescription, setOccasionDescription] = useState('');
   const [occasionDate, setOccasionDate] = useState('');
-  const [selectedType, setSelectedType] = useState('');
+  const [selectedTypeId, setSelectedTypeId] = useState(preselectedTypeId || '');
+  const lastCreateMetaRef = useRef(null);
   const [isDatePickerVisible, setDatePickerVisibility] = useState(false);
 
-  // Handle success
+  const partyTypes = GetPartyTypesData?.results?.partyTypes ?? [];
+  const typesLoading =
+    GetPartyTypesData == null && GetPartyTypesError == null;
+
+  useEffect(() => {
+    dispatch({type: SagaActions.GET_PARTY_TYPES, payload: {}});
+  }, []);
+
+  useEffect(() => {
+    if (preselectedTypeId) {
+      setSelectedTypeId(preselectedTypeId);
+    }
+  }, [preselectedTypeId]);
+
+  useEffect(() => {
+    if (GetPartyTypesError != null) {
+      Toast.show(
+        GetPartyTypesError?.message ?? t('Failed to load occasion types'),
+        Toast.LONG,
+      );
+      dispatch(GetPartyTypesReducer.removeGetPartyTypesResponse());
+    }
+  }, [GetPartyTypesError]);
+
   useEffect(() => {
     if (CreateMyOccasionResponse != null) {
       if (CreateMyOccasionResponse?.error === false) {
         dispatch(CreateMyOccasionReducer.removeCreateMyOccasionResponse());
-        const createdOccasion = CreateMyOccasionResponse?.results?.occasion;
+        const createdParty = CreateMyOccasionResponse?.results?.party;
+        const meta = lastCreateMetaRef.current;
+        const partyId = getPartyId(createdParty);
+        if (partyId && meta) {
+          rememberPartyMeta(partyId, meta);
+        }
+        const enrichedParty = mergePartyRecords(createdParty, meta);
         navigation.replace(config.routes.OCCASION_PLANNING_TYPE, {
-          occasion: createdOccasion,
+          occasion: enrichedParty,
           isNew: true,
         });
       }
     }
   }, [CreateMyOccasionResponse]);
 
-  // Handle error
   useEffect(() => {
     if (CreateMyOccasionError != null) {
       Toast.show(
@@ -80,16 +109,32 @@ const CreateOccasion = ({navigation}) => {
   }, [CreateMyOccasionError]);
 
   const handleCreate = () => {
+    if (!selectedTypeId) {
+      return Toast.show(t('Please select occasion type'), Toast.LONG);
+    }
     if (!occasionName.trim()) {
       return Toast.show(t('Please enter occasion name'), Toast.LONG);
+    }
+    if (!occasionDescription.trim()) {
+      return Toast.show(t('Please enter occasion description'), Toast.LONG);
     }
     if (!occasionDate) {
       return Toast.show(t('Please select occasion date'), Toast.LONG);
     }
+    const formattedDate = moment(occasionDate).format('YYYY-MM-DD');
+    lastCreateMetaRef.current = {
+      date: formattedDate,
+      occasion_date: formattedDate,
+      occasionDate: formattedDate,
+      description: occasionDescription.trim(),
+    };
     const payload = {
+      type: selectedTypeId,
       name: occasionName.trim(),
-      date: moment(occasionDate).format('YYYY-MM-DD'),
-      type: selectedType || 'other',
+      description: occasionDescription.trim(),
+      date: formattedDate,
+      occasion_date: formattedDate,
+      occasionDate: formattedDate,
     };
     dispatch({type: SagaActions.CREATE_MY_OCCASION, payload});
   };
@@ -116,44 +161,54 @@ const CreateOccasion = ({navigation}) => {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled">
-        {/* Hero banner */}
         <View style={styles.heroBanner}>
           <Text style={styles.heroEmoji}>✨</Text>
           <Text style={styles.heroTitle}>{t('Name Your Occasion')}</Text>
           <Text style={styles.heroSubtitle}>
-            {t('Tell us about this special moment so we can help you plan it perfectly.')}
+            {t(
+              'Choose a type, add details, and pick a date — we will help you plan your occasion.',
+            )}
           </Text>
         </View>
 
-        {/* Occasion Type Picker */}
         <Text style={styles.sectionLabel}>{t('Occasion Type')}</Text>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.typeScroll}>
-          {OCCASION_TYPES.map(type => (
-            <TouchableOpacity
-              key={type.id}
-              activeOpacity={0.8}
-              onPress={() => setSelectedType(type.id)}
-              style={[
-                styles.typeChip,
-                selectedType === type.id && styles.typeChipActive,
-              ]}>
-              <Text style={styles.typeEmoji}>{type.emoji}</Text>
-              <Text
-                style={[
-                  styles.typeLabel,
-                  selectedType === type.id && styles.typeLabelActive,
-                ]}>
-                {t(type.label)}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+        {typesLoading ? (
+          <ActivityIndicator
+            color={config.colors.orangeColor}
+            style={{marginBottom: 16}}
+          />
+        ) : partyTypes.length === 0 ? (
+          <Text style={styles.noTypesText}>
+            {t('No occasion types available. Please try again later.')}
+          </Text>
+        ) : (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.typeScroll}>
+            {partyTypes.map(type => {
+              const label = getPartyTypeLabel(type);
+              const active = selectedTypeId === type?._id;
+              return (
+                <TouchableOpacity
+                  key={type._id}
+                  activeOpacity={0.8}
+                  onPress={() => setSelectedTypeId(type._id)}
+                  style={[styles.typeChip, active && styles.typeChipActive]}>
+                  <Text
+                    style={[
+                      styles.typeLabel,
+                      active && styles.typeLabelActive,
+                    ]}>
+                    {label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        )}
 
-        {/* Occasion Name */}
-        <Text style={styles.sectionLabel}>{t('Occasion Name')}</Text>
+        <Text style={styles.sectionLabel}>{t('Occasion Name')} *</Text>
         <View style={styles.inputContainer}>
           <Text style={styles.inputIcon}>📝</Text>
           <TextInput
@@ -163,7 +218,7 @@ const CreateOccasion = ({navigation}) => {
             value={occasionName}
             onChangeText={setOccasionName}
             maxLength={60}
-            returnKeyType="done"
+            returnKeyType="next"
           />
           {occasionName.length > 0 && (
             <TouchableOpacity onPress={() => setOccasionName('')}>
@@ -172,8 +227,21 @@ const CreateOccasion = ({navigation}) => {
           )}
         </View>
 
-        {/* Occasion Date */}
-        <Text style={styles.sectionLabel}>{t('Occasion Date')}</Text>
+        <Text style={styles.sectionLabel}>{t('Occasion Description')} *</Text>
+        <View style={[styles.inputContainer, styles.textAreaContainer]}>
+          <TextInput
+            style={[styles.input, styles.textArea]}
+            placeholder={t('Describe your occasion')}
+            placeholderTextColor={config.colors.placeholderTextColor}
+            value={occasionDescription}
+            onChangeText={setOccasionDescription}
+            maxLength={500}
+            multiline
+            textAlignVertical="top"
+          />
+        </View>
+
+        <Text style={styles.sectionLabel}>{t('Occasion Date')} *</Text>
         <TouchableOpacity
           activeOpacity={0.8}
           style={styles.dateContainer}
@@ -202,7 +270,6 @@ const CreateOccasion = ({navigation}) => {
           )}
         </TouchableOpacity>
 
-        {/* Date countdown hint */}
         {occasionDate ? (
           <View style={styles.countdownRow}>
             <Text style={styles.countdownText}>
@@ -284,16 +351,20 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     marginTop: 4,
   },
+  noTypesText: {
+    fontFamily: config.fonts.Poppins_Regular,
+    fontSize: 13,
+    color: config.colors.Gray,
+    marginBottom: 16,
+  },
   typeScroll: {
     paddingBottom: 16,
   },
   typeChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
     backgroundColor: config.colors.white,
     borderRadius: 30,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
     marginRight: 10,
     borderWidth: 1.5,
     borderColor: config.colors.borderColor,
@@ -301,10 +372,6 @@ const styles = StyleSheet.create({
   typeChipActive: {
     backgroundColor: config.colors.orangeColor,
     borderColor: config.colors.orangeColor,
-  },
-  typeEmoji: {
-    fontSize: 16,
-    marginRight: 6,
   },
   typeLabel: {
     fontFamily: config.fonts.Poppins_Medium,
@@ -325,6 +392,11 @@ const styles = StyleSheet.create({
     height: 52,
     marginBottom: 20,
   },
+  textAreaContainer: {
+    alignItems: 'flex-start',
+    height: 110,
+    paddingVertical: 12,
+  },
   inputIcon: {
     fontSize: 18,
     marginRight: 10,
@@ -336,6 +408,10 @@ const styles = StyleSheet.create({
     color: config.colors.Black,
     paddingVertical: 0,
     textAlign: I18nManager.isRTL ? 'right' : 'left',
+  },
+  textArea: {
+    height: 86,
+    paddingTop: 0,
   },
   clearBtn: {
     fontSize: 14,
@@ -384,5 +460,3 @@ const styles = StyleSheet.create({
 });
 
 export default CreateOccasion;
-
-

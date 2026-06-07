@@ -72,7 +72,7 @@
       </activity>
       <meta-data
         android:name="com.google.android.geo.API_KEY"
-        android:value="AIzaSyCBMKz54vZuIMG7KAl0rkwBqrf0g-du02c"/>
+        android:value="AIzaSyBIk9oE4wqqpQ3Yt-bj3LvPbKJhLyc5g5Q"/>
 
       <!-- 16KB page size support — required by Google Play from Nov 1 2025 -->
       <meta-data

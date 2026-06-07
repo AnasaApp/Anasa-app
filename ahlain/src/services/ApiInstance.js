@@ -4,6 +4,7 @@ import config from '../config';
 import {SagaActions} from '../redux/sagas/SagaActions';
 import {ApiCalls} from './ApiCalls';
 import {goToLogin} from '../conponents/NavigationRef';
+import {logApiRequest, logApiResponse} from '../utils/apiLogger';
 
 const httpPostRequest = async ({apiUrl, jsonBody, apiType}) => {
   let data;
@@ -42,19 +43,26 @@ const httpPostRequest = async ({apiUrl, jsonBody, apiType}) => {
     headers['x-auth-token-buyer'] = userData.token;
   }
 
-  console.log('Request headers (POST):', {hasToken: !!headers['x-auth-token-buyer'], isGuest});
+  logApiRequest(apiType, apiUrl, data);
 
   const response = await Axios.post(apiUrl, data, {headers})
     .then(result => {
-      console.log('result.data===', result.data);
       let isSucceded = false;
       if (result?.data?.error == false) {
         isSucceded = true;
       }
+      logApiResponse(apiType, apiUrl, isSucceded, result?.data, {
+        hasToken: !!result?.data?.results?.token,
+      });
       return {result, isSucceded};
     })
     .catch(async error => {
       const excep = error;
+      logApiResponse(apiType, apiUrl, false, null, {
+        httpStatus: error?.response?.status,
+        message: error?.message,
+        responseMessage: error?.response?.data?.message,
+      });
       console.log('Error', JSON.stringify(error));
       const errorParse = JSON.parse(JSON.stringify(error));
 

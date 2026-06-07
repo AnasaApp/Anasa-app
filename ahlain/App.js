@@ -1,6 +1,6 @@
 import 'react-native-gesture-handler';
-import React, {useEffect, useRef} from 'react';
-import {I18nManager, Linking, Platform, StatusBar, View, AppState} from 'react-native';
+import React, {useEffect, useRef, useState} from 'react';
+import {Linking, Platform, StatusBar, AppState} from 'react-native';
 import {GestureHandlerRootView} from 'react-native-gesture-handler';
 import {Provider} from 'react-redux';
 import {store} from './src/config/store';
@@ -12,9 +12,12 @@ import crashlytics from '@react-native-firebase/crashlytics';
 import messaging from '@react-native-firebase/messaging';
 import PushNotificationIOS from '@react-native-community/push-notification-ios';
 import {trackEvents} from './src/config/FCMEvents';
+import {hydratePartyMetaCache} from './src/utils/partyHelpers';
+import {bootstrapAppLanguage} from './src/utils/languageHelpers';
 
 const App = () => {
   const appState = useRef(AppState.currentState);
+  const [languageReady, setLanguageReady] = useState(false);
 
   if (__DEV__ && global.ErrorUtils?.setGlobalHandler) {
     const defaultHandler = global.ErrorUtils.getGlobalHandler?.();
@@ -24,6 +27,20 @@ const App = () => {
       defaultHandler?.(error, isFatal);
     });
   }
+
+  useEffect(() => {
+    bootstrapAppLanguage()
+      .catch(error => {
+        console.log('Language bootstrap error:', error);
+      })
+      .finally(() => {
+        setLanguageReady(true);
+      });
+  }, []);
+
+  useEffect(() => {
+    hydratePartyMetaCache();
+  }, []);
 
   // Handle app lifecycle to prevent crash on background resume
   useEffect(() => {
@@ -58,7 +75,6 @@ const App = () => {
 
   useEffect(() => {
     try {
-      I18nManager.allowRTL(false);
       crashlytics().setCrashlyticsCollectionEnabled(true).catch(e => console.log('Crashlytics init error:', e));
       crashlytics().log('App mounted.').catch(e => console.log('Crashlytics log error:', e));
       trackEvents('app_launch', {
@@ -136,6 +152,10 @@ const App = () => {
       return unsubscribe;
     }
   }, []);
+  if (!languageReady) {
+    return null;
+  }
+
   return (
     <GestureHandlerRootView style={{flex: 1}}>
       <Provider store={store}>

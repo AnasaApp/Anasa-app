@@ -28,6 +28,7 @@ import {CommonModal} from '../../conponents/CommonModal';
 import AppImage from '../../conponents/AppImage';
 import {AppButton} from '../../conponents';
 import {useFocusEffect} from '@react-navigation/native';
+import {isValidCoordinate} from '../../utils/mapHelpers';
 
 const SelectLocation = ({navigation, route}) => {
   const {t, i18n} = useTranslation();
@@ -114,6 +115,34 @@ const SelectLocation = ({navigation, route}) => {
     };
     dispatch({type: SagaActions.DELETE_ADDRESS, payload});
   };
+
+  const openMapPicker = async () => {
+    const res = await AsyncStorage.getItem(config.AsyncKeys.USER_LOCATION);
+    const cached = res ? JSON.parse(res) : null;
+    const params = {from: 'add'};
+    if (isValidCoordinate(cached?.latitude, cached?.longitude)) {
+      params.latitude = cached.latitude;
+      params.longitude = cached.longitude;
+    }
+    navigation.navigate(config.routes.MAP_VIEW_LOCATION, params);
+  };
+
+  const confirmAddressSelection = () => {
+    if (!selectLocation?._id) {
+      Toast.show(t('Please select an address'), Toast.SHORT);
+      return;
+    }
+    if (route?.params?.returnScreen) {
+      navigation.navigate({
+        name: route.params.returnScreen,
+        params: {selectedAddress: selectLocation},
+        merge: true,
+      });
+      return;
+    }
+    navigation.goBack();
+  };
+
   return (
     <View style={styles.SafeAreaView}>
       <StatusBar
@@ -147,25 +176,7 @@ const SelectLocation = ({navigation, route}) => {
               {route?.params?.from == 'Cart' ? (
                 <TouchableOpacity
                   activeOpacity={0.8}
-                  onPress={async () => {
-                    const res = await AsyncStorage.getItem(
-                      config.AsyncKeys.USER_LOCATION,
-                    );
-                    if (res) {
-                      const result = JSON.parse(res);
-                      navigation.navigate(config.routes.MAP_VIEW_LOCATION, {
-                        from: 'add',
-                        latitude: result?.latitude,
-                        longitude: result?.longitude,
-                      });
-                    } else {
-                      navigation.navigate(config.routes.MAP_VIEW_LOCATION, {
-                        from: 'add',
-                        latitude: 0,
-                        longitude: 0,
-                      });
-                    }
-                  }}
+                  onPress={openMapPicker}
                   style={styles.currentLocationCss}>
                   <Image
                     style={{
@@ -386,35 +397,14 @@ const SelectLocation = ({navigation, route}) => {
             <TouchableOpacity
               style={styles.buttonCss}
               activeOpacity={0.5}
-              onPress={() => {
-                route?.params?.setLocationId(selectLocation);
-                navigation.goBack();
-              }}>
+              onPress={confirmAddressSelection}>
               <Text style={styles.buttonText}>{t('Confirm')}</Text>
             </TouchableOpacity>
           ) : (
             <TouchableOpacity
               style={styles.buttonCss}
               activeOpacity={0.5}
-              onPress={async () => {
-                const res = await AsyncStorage.getItem(
-                  config.AsyncKeys.USER_LOCATION,
-                );
-                if (res) {
-                  const result = JSON.parse(res);
-                  navigation.navigate(config.routes.MAP_VIEW_LOCATION, {
-                    from: 'add',
-                    latitude: result?.latitude,
-                    longitude: result?.longitude,
-                  });
-                } else {
-                  navigation.navigate(config.routes.MAP_VIEW_LOCATION, {
-                    from: 'add',
-                    latitude: 0,
-                    longitude: 0,
-                  });
-                }
-              }}>
+              onPress={openMapPicker}>
               <Text style={styles.buttonText}>{t('Add Address')}</Text>
             </TouchableOpacity>
           )}

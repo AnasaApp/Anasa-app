@@ -24,6 +24,8 @@ const removeLoginResponseData = (state) => {
   state.loginResponse = null;
 };
 
+const resetLoginStateData = () => initialState;
+
 /* Signout Action */
 const signOutAction = createAction('signout');
 
@@ -41,12 +43,18 @@ const userSlice = createSlice({
     saveFCMToken: saveFCMTokenData,
     saveLoginResponse: saveLoginResponseData,
     removeLoginResponse: removeLoginResponseData,
+    resetLoginState: resetLoginStateData,
   },
 });
 
 // Get actions from created UserSlice
-const { saveUserLogin, saveFCMToken, saveLoginResponse, removeLoginResponse } =
-  userSlice.actions;
+const {
+  saveUserLogin,
+  saveFCMToken,
+  saveLoginResponse,
+  removeLoginResponse,
+  resetLoginState,
+} = userSlice.actions;
 
 // SELECTOR
 const selectLoginUser = ({ loginUserReducer }) => loginUserReducer.userData ?? null;
@@ -62,5 +70,6 @@ export {
   saveFCMToken,
   signOutAction,
   removeLoginResponse,
+  resetLoginState,
   selectLoginErrorResponse,
 };

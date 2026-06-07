@@ -1,6 +1,6 @@
 import {
+  ActivityIndicator,
   Dimensions,
-  FlatList,
   I18nManager,
   Image,
   Platform,
@@ -9,7 +9,6 @@ import {
   StatusBar,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -31,8 +30,10 @@ import Geolocation from 'react-native-geolocation-service';
 import {check, PERMISSIONS, request} from 'react-native-permissions';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import MapView, {Marker} from 'react-native-maps';
+import MapView, {PROVIDER_GOOGLE} from 'react-native-maps';
 import {AppButton, AppTextInput} from '../../conponents';
+import {buildMapRegion, isValidCoordinate} from '../../utils/mapHelpers';
+import useMapCamera from '../../hooks/useMapCamera';
 
 const MapViewLocation = ({navigation, route}) => {
   const {t, i18n} = useTranslation();
@@ -86,20 +87,19 @@ const MapViewLocation = ({navigation, route}) => {
     route?.params?.edit_address ?? '',
   );
 
-  const [region, setRegion] = useState({
-    latitude: 0.0,
-    longitude: 0.0,
+  const initialLat =
+    route?.params?.latitude ?? route?.params?.edit_address?.latitude;
+  const initialLng =
+    route?.params?.longitude ?? route?.params?.edit_address?.longitude;
 
-    latitudeDelta: 0.003,
-    longitudeDelta: 0.003,
-  });
-  const [initialRegion, setInitialRegion] = useState({
-    latitude: route?.params?.latitude,
-    longitude: route?.params?.longitude,
+  const {
+    mapRef,
+    mapRegion,
+    moveMapTo,
+    onMapReady,
+    onRegionChangeComplete: handleRegionChangeComplete,
+  } = useMapCamera(initialLat, initialLng);
 
-    latitudeDelta: 0.003,
-    longitudeDelta: 0.003,
-  });
   const [isBottomSheetShow, setBottomSheetShow] = useState(true);
   const [search_text, setSearchText] = useState('');
   const [searchResults, setSearchResults] = useState([]);
@@ -111,11 +111,207 @@ const MapViewLocation = ({navigation, route}) => {
   const [pageNo, setPageNo] = useState(1);
   const [totalPageNo, setTotalPageNo] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [locationStatus, setLocationStatus] = useState('loading');
 
   const searchBarInput = useRef();
-  const mapRef = useRef();
+  const initStartedRef = useRef(false);
+  const geocodeDebounceRef = useRef(null);
+  const isMountedRef = useRef(true);
 
-  //hooks calling
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      if (geocodeDebounceRef.current) {
+        clearTimeout(geocodeDebounceRef.current);
+      }
+    };
+  }, []);
+
+  const isLocationReady =
+    locationStatus === 'ready' &&
+    !!address?.trim() &&
+    isValidCoordinate(latitude, longitude);
+
+  const handleLocationFailure = message => {
+    setLocationStatus('failed');
+    Toast.show(message ?? t('Unable to get your location'), Toast.LONG);
+    navigation.goBack();
+  };
+
+  const fetchCurrentPosition = () =>
+    new Promise((resolve, reject) => {
+      Geolocation.getCurrentPosition(
+        position => resolve(position.coords),
+        () => {
+          Geolocation.getCurrentPosition(
+            position => resolve(position.coords),
+            error => reject(error),
+            {enableHighAccuracy: false, timeout: 15000, maximumAge: 120000},
+          );
+        },
+        {enableHighAccuracy: true, timeout: 15000, maximumAge: 10000},
+      );
+    });
+
+  const ensureLocationPermission = async () => {
+    if (Platform.OS === 'ios') {
+      const auth = await Geolocation.requestAuthorization('whenInUse');
+      if (auth !== 'granted') {
+        throw new Error('permission_denied');
+      }
+      return;
+    }
+    const res = await check(PERMISSIONS.ANDROID.ACCESS_FINE_LOCATION);
+    if (res === 'granted') {
+      return;
+    }
+    if (res === 'denied') {
+      const res2 = await request(PERMISSIONS.ANDROID.ACCESS_FINE_LOCATION);
+      if (res2 === 'granted') {
+        return;
+      }
+    }
+    throw new Error('permission_denied');
+  };
+
+  const resolveAddressAt = (lat, lng, options = {}) => {
+    const {moveCamera = true} = options;
+    if (!isValidCoordinate(lat, lng)) {
+      return Promise.reject(new Error('invalid_coordinates'));
+    }
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${Number(
+      lat,
+    )},${Number(lng)}&key=${config.constants.MAP_API_KEY}`;
+
+    return axios.get(url, {timeout: 12000}).then(res => {
+      const result = res.data?.results?.[0];
+      if (!result?.formatted_address) {
+        throw new Error('no_address');
+      }
+      const geoLat = result.geometry?.location?.lat;
+      const geoLng = result.geometry?.location?.lng;
+      if (!isValidCoordinate(geoLat, geoLng)) {
+        throw new Error('invalid_geocode');
+      }
+
+      setAddress(result.formatted_address);
+      const full_address = result.formatted_address.split(',') ?? [];
+      if (full_address[1]) {
+        setBuildingName(full_address[1]);
+      }
+      setlatitude(lat);
+      setlongitude(lng);
+
+      const component = result.address_components ?? [];
+      for (let i = 0; i < component.length; i++) {
+        if (
+          component[i]?.types.includes('premise') ||
+          component[i]?.types.includes('street_number')
+        ) {
+          setHouseNo(component[i]?.long_name);
+        } else if (component[i]?.types.includes('postal_code')) {
+          setPincode(component[i]?.long_name);
+        } else if (component[i]?.types.includes('locality')) {
+          setLocality(component[i]?.long_name);
+        } else if (component[i]?.types.includes('country')) {
+          setCountry(component[i]?.long_name);
+        }
+      }
+
+      if (moveCamera) {
+        moveMapTo(geoLat, geoLng);
+      }
+      return result.formatted_address;
+    });
+  };
+
+  const loadLocationAt = async (lat, lng) => {
+    if (!isValidCoordinate(lat, lng)) {
+      throw new Error('invalid_coordinates');
+    }
+    const nLat = Number(lat);
+    const nLng = Number(lng);
+    setlatitude(nLat);
+    setlongitude(nLng);
+    moveMapTo(nLat, nLng);
+
+    try {
+      await resolveAddressAt(nLat, nLng, {moveCamera: false});
+    } catch {
+      setAddress(
+        `${nLat.toFixed(5)}, ${nLng.toFixed(5)} — ${t('Move the map to refine')}`,
+      );
+    }
+
+    if (isMountedRef.current) {
+      setLocationStatus('ready');
+    }
+  };
+
+  const initializeLocation = async () => {
+    if (initStartedRef.current) {
+      return;
+    }
+    initStartedRef.current = true;
+    setLocationStatus('loading');
+
+    try {
+      if (
+        route?.params?.from === 'edit' &&
+        editAddress &&
+        isValidCoordinate(editAddress?.latitude, editAddress?.longitude)
+      ) {
+        setCity(editAddress?.city);
+        await loadLocationAt(editAddress.latitude, editAddress.longitude);
+        return;
+      }
+
+      if (isValidCoordinate(initialLat, initialLng)) {
+        await loadLocationAt(initialLat, initialLng);
+        return;
+      }
+
+      await ensureLocationPermission();
+      const coords = await fetchCurrentPosition();
+      await AsyncStorage.setItem(
+        config.AsyncKeys.USER_LOCATION,
+        JSON.stringify({
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+        }),
+      );
+      await loadLocationAt(coords.latitude, coords.longitude);
+    } catch (error) {
+      const msg =
+        error?.message === 'permission_denied'
+          ? t('Please enable location permission from app setting')
+          : t('Unable to get your location. Please try again.');
+      handleLocationFailure(msg);
+    }
+  };
+
+  const onUseCurrentLocation = async () => {
+    setLocationStatus('loading');
+    try {
+      await ensureLocationPermission();
+      const coords = await fetchCurrentPosition();
+      await AsyncStorage.setItem(
+        config.AsyncKeys.USER_LOCATION,
+        JSON.stringify({
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+        }),
+      );
+      await loadLocationAt(coords.latitude, coords.longitude);
+    } catch (error) {
+      const msg =
+        error?.message === 'permission_denied'
+          ? t('Please enable location permission from app setting')
+          : t('Unable to get your location. Please try again.');
+      handleLocationFailure(msg);
+    }
+  };
 
   useEffect(() => {
     if (AddAddressResponse != null) {
@@ -158,7 +354,7 @@ const MapViewLocation = ({navigation, route}) => {
   // api calling
 
   useEffect(() => {
-    requestLocationPermission();
+    initializeLocation();
   }, []);
   useEffect(() => {
     setCitiesList([]);
@@ -175,29 +371,6 @@ const MapViewLocation = ({navigation, route}) => {
       search: searchText,
     };
     dispatch({type: SagaActions.GET_CITIES, payload});
-  };
-  const requestLocationPermission = async val => {
-    // ask for PermissionAndroid as written in your code
-    if (Platform.OS === 'ios') {
-      const auth = await Geolocation.requestAuthorization('whenInUse');
-      if (auth === 'granted') {
-        await setCurrentLocation(val);
-      }
-    } else {
-      try {
-        const res = await check(PERMISSIONS.ANDROID.ACCESS_FINE_LOCATION);
-        if (res === 'granted') {
-          await setCurrentLocation(val);
-          console.log('You can use location');
-        } else if (res === 'denied') {
-          const res2 = request(PERMISSIONS.ANDROID.ACCESS_FINE_LOCATION);
-        } else if (res === 'blocked') {
-          alert(t('Please enable location permission from app setting'));
-        }
-      } catch (err) {
-        console.warn(err);
-      }
-    }
   };
   const getSearchSuggestion = val => {
     setSearchText(val);
@@ -249,149 +422,62 @@ const MapViewLocation = ({navigation, route}) => {
   const getLocation_data = place_id => {
     const url = `https://maps.googleapis.com/maps/api/geocode/json?place_id=${place_id}&key=${config.constants.MAP_API_KEY}`;
 
+    setLocationStatus('loading');
     axios
-      .get(url)
+      .get(url, {timeout: 12000})
       .then(res => {
-        mapRef.current?.animateToRegion(
-          {
-            latitude: res.data.results[0]?.geometry?.location?.lat,
-            longitude: res.data.results[0]?.geometry?.location?.lng,
-            latitudeDelta: 0.003,
-            longitudeDelta: 0.003,
-          },
-          650,
-        );
-
-        setRegion({
-          latitude: res.data.results[0]?.geometry?.location?.lat,
-          longitude: res.data.results[0]?.geometry?.location?.lng,
-          latitudeDelta: 0.003,
-          longitudeDelta: 0.003,
-        });
-        getAddressFromCoordinates(
-          res.data.results[0]?.geometry?.location?.lat,
-          res.data.results[0]?.geometry?.location?.lng,
-        );
+        const lat = res.data.results[0]?.geometry?.location?.lat;
+        const lng = res.data.results[0]?.geometry?.location?.lng;
+        if (!isValidCoordinate(lat, lng)) {
+          throw new Error('invalid');
+        }
+        moveMapTo(lat, lng);
+        return resolveAddressAt(lat, lng, {moveCamera: false});
+      })
+      .then(() => {
         setSearchResults([]);
         setSearchText('');
         setBottomSheetShow(true);
+        setLocationStatus('ready');
       })
-      .catch(error => console.log('error', error));
+      .catch(() => {
+        Toast.show(t('Unable to find this place'), Toast.LONG);
+        setLocationStatus('ready');
+      });
   };
 
-  async function setCurrentLocation(val) {
-    Geolocation.getCurrentPosition(
-      async position => {
-        await AsyncStorage.setItem(
-          config.AsyncKeys.USER_LOCATION,
-          JSON.stringify({
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-          }),
-        );
-        if (route?.params?.from == 'edit') {
-          if (val == 'current') {
-            setRegion({
-              latitude: position.coords.latitude,
-              longitude: position.coords.longitude,
-              latitudeDelta: 0.003,
-              longitudeDelta: 0.003,
-            });
-            getAddressFromCoordinates(
-              position.coords.latitude,
-              position.coords.longitude,
-            );
-          } else {
-            setRegion({
-              latitude: parseFloat(editAddress?.latitude),
-              longitude: parseFloat(editAddress?.longitude),
-              latitudeDelta: 0.003,
-              longitudeDelta: 0.003,
-            });
-            setCity(editAddress?.city);
-            getAddressFromCoordinates(
-              editAddress.latitude,
-              editAddress.longitude,
-            );
-          }
-        } else {
-          setRegion({
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            latitudeDelta: 0.003,
-            longitudeDelta: 0.003,
-          });
-          getAddressFromCoordinates(
-            position.coords.latitude,
-            position.coords.longitude,
-          );
-        }
-      },
+  const scheduleAddressLookup = (lat, lng, {immediate = false} = {}) => {
+    if (!isValidCoordinate(lat, lng)) {
+      return;
+    }
+    const nLat = Number(lat);
+    const nLng = Number(lng);
+    setlatitude(nLat);
+    setlongitude(nLng);
 
-      error => {
-        console.log(error.code, error.message);
-      },
-      {enableHighAccuracy: true, timeout: 15000, maximumAge: 10000},
-    );
-  }
-  const onRegionChange = region => {
-    let latitude = '';
-    let longitude = '';
-    if (region.latitude == editAddress?.latitude) {
-      latitude = editAddress.latitude;
-      longitude = editAddress.longitude;
-    } else {
-      latitude = region.latitude;
-      longitude = region.longitude;
+    if (geocodeDebounceRef.current) {
+      clearTimeout(geocodeDebounceRef.current);
     }
 
-    getAddressFromCoordinates(latitude, longitude);
+    const runLookup = () => {
+      resolveAddressAt(nLat, nLng, {moveCamera: false})
+        .then(() => {
+          if (isMountedRef.current) {
+            setLocationStatus('ready');
+          }
+        })
+        .catch(() => {});
+    };
+
+    if (immediate) {
+      runLookup();
+      return;
+    }
+
+    geocodeDebounceRef.current = setTimeout(runLookup, 450);
   };
 
-  function getAddressFromCoordinates(lat, lng) {
-    console.log('lat', lat + lng);
-    const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${
-      lat + ',' + lng
-    }&key=${config.constants.MAP_API_KEY}`;
-    axios
-      .get(url)
-      .then(res => {
-        console.log(
-          'res.data?.results[0]?.formatted_address',
-          res.data?.results[0]?.formatted_address,
-        );
-        setAddress(res.data?.results[0]?.formatted_address);
-        const full_address = res.data?.results[0]?.formatted_address.split(',');
-        setBuildingName(full_address[1]);
-
-        setlatitude(res.data?.results[0]?.geometry?.location?.lat);
-        setlongitude(res.data?.results[0]?.geometry?.location?.lng);
-        const component = res.data?.results[0]?.address_components;
-        for (let i = 0; i < component?.length; i++) {
-          if (
-            component[i]?.types.includes('premise') ||
-            component[i]?.types.includes('street_number')
-          ) {
-            setHouseNo(component[i]?.long_name);
-          } else if (component[i]?.types.includes('postal_code')) {
-            setPincode(component[i]?.long_name);
-          } else if (
-            component[i]?.types.includes('administrative_area_level_1')
-          ) {
-            // setaddi_number(component[i]?.long_name)
-            // setCity(component[i]?.long_name);
-          } else if (component[i]?.types.includes('locality')) {
-            // setaddi_number(component[i]?.long_name)
-            setLocality(component[i]?.long_name);
-          } else if (component[i]?.types.includes('country')) {
-            // setaddi_number(component[i]?.long_name)
-            setCountry(component[i]?.long_name);
-          }
-        }
-      })
-      .catch(error => console.log('error', error));
-    console.log(url);
-  }
+  const isResolvingLocation = locationStatus === 'loading';
 
   return (
     <SafeAreaView style={{flex: 1, backgroundColor: config.colors.white}}>
@@ -402,42 +488,27 @@ const MapViewLocation = ({navigation, route}) => {
       />
       <MapView
         ref={mapRef}
+        provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
         style={styles.map}
-        initialRegion={initialRegion}
-        region={region}
-        onRegionChangeComplete={region => {
-          onRegionChange(region);
+        initialRegion={buildMapRegion(initialLat, initialLng)}
+        showsUserLocation
+        showsMyLocationButton={false}
+        onMapReady={onMapReady}
+        onRegionChange={region => {
+          if (locationStatus === 'loading' || !region) {
+            return;
+          }
+          scheduleAddressLookup(region.latitude, region.longitude);
         }}
-
-        // minZoomLevel={10}
-        // onRegionChange={onAnnotationPress()}
-        // provider={PROVIDER_GOOGLE}
-
-        // zoomEnabled={true}
-        // mapType={'satellite'}
-
-        // showsUserLocation = {true}
-      >
-        <Marker coordinate={initialRegion}>
-          <Image
-            style={{
-              height: 24,
-              width: 24,
-              tintColor: config.colors.orangeColor,
-            }}
-            source={require('../../assets/images/currentLocation.png')}
-          />
-        </Marker>
-      </MapView>
-      <View
-        style={{alignSelf: 'center', position: 'absolute', top: '20%'}}
-        pointerEvents="none">
+        onRegionChangeComplete={region =>
+          handleRegionChangeComplete(region, (lat, lng) =>
+            scheduleAddressLookup(lat, lng, {immediate: true}),
+          )
+        }
+      />
+      <View style={styles.centerPinWrap} pointerEvents="none">
         <Image
-          style={{
-            height: 40,
-            width: 40,
-            tintColor: config.colors.purpleColor,
-          }}
+          style={styles.centerPinImage}
           source={require('../../assets/images/markerIcon.png')}
         />
       </View>
@@ -483,6 +554,7 @@ const MapViewLocation = ({navigation, route}) => {
             placeholder={t('Search Area')}
             onChangeText={val => getSearchSuggestion(val)}
             value={search_text}
+            editable={!isResolvingLocation}
             textInputStyle={{flex: 1, width: '80%'}}
             leftIcon={require('../../assets/images/Search.png')}
             leftIconStyle={{
@@ -552,15 +624,15 @@ const MapViewLocation = ({navigation, route}) => {
         }}>
         <TouchableOpacity
           activeOpacity={0.8}
-          onPress={() => {
-            requestLocationPermission('current');
-          }}
+          disabled={isResolvingLocation}
+          onPress={onUseCurrentLocation}
           style={{flexDirection: 'row', alignItems: 'center'}}>
           <Image
             style={{
               height: 24,
               width: 24,
               tintColor: config.colors.purpleColor,
+              opacity: isResolvingLocation ? 0.4 : 1,
             }}
             source={require('../../assets/images/currentLocation.png')}
           />
@@ -571,26 +643,37 @@ const MapViewLocation = ({navigation, route}) => {
               lineHeight: 21,
               marginLeft: 4,
               color: config.colors.blackColor,
+              opacity: isResolvingLocation ? 0.4 : 1,
             }}>
             {t('Use Current Location')}
           </Text>
         </TouchableOpacity>
-        <Text
-          style={{
-            fontFamily: config.fonts.Poppins_Regular,
-            fontSize: 14,
-            lineHeight: 18,
-            color: config.colors.blackColor,
-            marginTop: 10,
-            textAlign: 'left',
-          }}>
-          {address}
-        </Text>
+        <View style={styles.addressRow}>
+          {isResolvingLocation ? (
+            <ActivityIndicator
+              size="small"
+              color={config.colors.orangeColor}
+              style={styles.addressSpinner}
+            />
+          ) : null}
+          <Text
+            style={[
+              styles.addressText,
+              isResolvingLocation && styles.addressTextLoading,
+            ]}>
+            {isResolvingLocation
+              ? t('Fetching your location...')
+              : address || t('Move the map or search to pick a location')}
+          </Text>
+        </View>
         <AppButton
           text={t('Proceed')}
+          disabled={!isLocationReady}
           onPress={() => {
-            if (address != '') {
-              navigation.replace(config.routes.ADD_NEW_ADDRESS, {
+            if (!isLocationReady) {
+              return;
+            }
+            navigation.replace(config.routes.ADD_NEW_ADDRESS, {
                 from: route?.params?.from,
                 address: {
                   _id: editAddress?._id ?? '',
@@ -611,17 +694,15 @@ const MapViewLocation = ({navigation, route}) => {
                     MyProfileResponse?.results?.buyer?.country_code ?? '966',
                 },
               });
-            } else {
-              Toast.show({
-                type: 'error',
-                text1: t('Please select your address'),
-              });
-            }
           }}
           textStyle={{fontSize: 14}}
-          buttonStyle={{marginVertical: 10}}
+          buttonStyle={{
+            marginVertical: 10,
+            opacity: isLocationReady ? 1 : 0.45,
+          }}
         />
       </View>
+
     </SafeAreaView>
   );
 };
@@ -635,5 +716,39 @@ const styles = StyleSheet.create({
   map: {
     ...StyleSheet.absoluteFillObject,
     height: Dimensions.get('window').height,
+  },
+  centerPinWrap: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    marginLeft: -20,
+    marginTop: -40,
+    zIndex: 2,
+  },
+  centerPinImage: {
+    height: 40,
+    width: 40,
+    tintColor: config.colors.purpleColor,
+  },
+  addressRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginTop: 10,
+    minHeight: 40,
+  },
+  addressSpinner: {
+    marginRight: 8,
+    marginTop: 2,
+  },
+  addressText: {
+    flex: 1,
+    fontFamily: config.fonts.Poppins_Regular,
+    fontSize: 14,
+    lineHeight: 18,
+    color: config.colors.blackColor,
+    textAlign: 'left',
+  },
+  addressTextLoading: {
+    color: config.colors.Gray,
   },
 });

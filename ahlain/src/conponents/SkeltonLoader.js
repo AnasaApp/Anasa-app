@@ -17,7 +17,11 @@ const SkeltonLoader = ({
   variant,
   count = 1,
   direction = 'column',
+  noSafeArea = false,
+  containerStyle,
+  skeletonColor,
 }) => {
+  const fillColor = skeletonColor ?? config.colors.placeHolderColor;
   const pulseAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -60,7 +64,7 @@ const SkeltonLoader = ({
             opacity: opacityAnim,
             height: height,
             width: width,
-            backgroundColor: config.colors.placeHolderColor,
+            backgroundColor: fillColor,
             borderRadius: 8,
           }} />
       );
@@ -78,7 +82,7 @@ const SkeltonLoader = ({
                   opacity: opacityAnim,
                   height: height,
                   width: width,
-                  backgroundColor: config.colors.placeHolderColor,
+                  backgroundColor: fillColor,
                   borderRadius: 8,
                   marginRight: 10,
                   marginTop: direction == 'row' ? 0 : 10,
@@ -96,7 +100,7 @@ const SkeltonLoader = ({
               width: 40,
               height: height,
               borderRadius: height / 2,
-              backgroundColor: config.colors.placeHolderColor,
+              backgroundColor: fillColor,
             }} />
           <View>
             <Animated.View
@@ -104,7 +108,7 @@ const SkeltonLoader = ({
                 opacity: opacityAnim,
                 width: 200,
                 height: 16,
-                backgroundColor: config.colors.placeHolderColor,
+                backgroundColor: fillColor,
                 borderRadius: 8,
                 marginLeft: 10,
               }} />
@@ -113,7 +117,7 @@ const SkeltonLoader = ({
                 opacity: opacityAnim,
                 width: 100,
                 height: 14,
-                backgroundColor: config.colors.placeHolderColor,
+                backgroundColor: fillColor,
                 borderRadius: 8,
                 marginLeft: 10,
                 marginTop: 5,
@@ -128,7 +132,7 @@ const SkeltonLoader = ({
             opacity: opacityAnim,
             height: height,
             width: width,
-            backgroundColor: config.colors.placeHolderColor,
+            backgroundColor: fillColor,
             borderRadius: height / 2,
           }} />
       );
@@ -146,7 +150,7 @@ const SkeltonLoader = ({
                   opacity: opacityAnim,
                   height: height,
                   width: width,
-                  backgroundColor: config.colors.placeHolderColor,
+                  backgroundColor: fillColor,
                   borderRadius: height / 2,
                   marginRight: 10,
                 }} />
@@ -157,8 +161,13 @@ const SkeltonLoader = ({
     }
     return layout;
   };
+  if (noSafeArea) {
+    return <View style={containerStyle}>{getAnimatedLayout()}</View>;
+  }
   return (
-    <SafeAreaView style={styles.container}>{getAnimatedLayout()}</SafeAreaView>
+    <SafeAreaView style={[styles.container, containerStyle]}>
+      {getAnimatedLayout()}
+    </SafeAreaView>
   );
 };
 

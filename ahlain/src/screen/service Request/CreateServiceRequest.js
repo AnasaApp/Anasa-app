@@ -44,7 +44,7 @@ import axios from 'axios';
 import Apiloader from '../../conponents/ApiLoader';
 import {AppTextInput} from '../../conponents';
 import {goToLogin} from '../../conponents/NavigationRef';
-import {useIsFocused} from '@react-navigation/native';
+import {useFocusEffect, useIsFocused} from '@react-navigation/native';
 import {debounce} from 'lodash';
 import DateTimePickerModal from 'react-native-modal-datetime-picker';
 import AppImage from '../../conponents/AppImage';
@@ -123,6 +123,16 @@ const CreateServiceRequest = ({navigation, route}) => {
   const [viewRequestData, setViewRequestData] = useState('');
 
   const isFocused = useIsFocused();
+
+  useFocusEffect(
+    useCallback(() => {
+      const selected = route.params?.selectedAddress;
+      if (selected?._id) {
+        setLocationId(selected);
+        navigation.setParams({selectedAddress: undefined});
+      }
+    }, [route.params?.selectedAddress, navigation]),
+  );
 
   useEffect(() => {
     if (MyProfileResponse?.results?.buyer?.preferredStartDate) {
@@ -343,6 +353,27 @@ const CreateServiceRequest = ({navigation, route}) => {
   const hideEndDatePicker = () => {
     setEndDatePickerVisibility(false);
   };
+
+  const getStartDatePickerValue = () => {
+    if (schedule_start_date) {
+      const parsed = new Date(schedule_start_date);
+      if (!Number.isNaN(parsed.getTime())) {
+        return parsed;
+      }
+    }
+    return moment().add(3, 'days').toDate();
+  };
+
+  const getTimePickerValue = timeStr => {
+    if (timeStr) {
+      const parsed = moment(timeStr, ['hh:mm A', 'HH:mm'], true);
+      if (parsed.isValid()) {
+        return parsed.toDate();
+      }
+    }
+    return new Date();
+  };
+
   const handleStartDateConfirm = date => {
     setSchedulStartDate(date);
     setScheduleEndDate(date);
@@ -1324,7 +1355,7 @@ const CreateServiceRequest = ({navigation, route}) => {
                   setLocationId('');
                   navigation.navigate(config.routes.USER_ADDRESS, {
                     from: 'Cart',
-                    setLocationId,
+                    returnScreen: config.routes.CREATE_SERVICE_REQUEST,
                   });
                 }}
                 style={{
@@ -1628,6 +1659,7 @@ const CreateServiceRequest = ({navigation, route}) => {
         <DateTimePickerModal
           isVisible={isStartDatePickerVisible}
           mode="date"
+          date={getStartDatePickerValue()}
           onConfirm={handleStartDateConfirm}
           onCancel={hideStartDatePicker}
           minimumDate={new Date(moment().add(3, 'days'))}
@@ -1637,6 +1669,7 @@ const CreateServiceRequest = ({navigation, route}) => {
           isVisible={isStartTimePickerVisible}
           mode="time"
           display="spinner"
+          date={getTimePickerValue(schedule_start_time)}
           onConfirm={handleStartTimeConfirm}
           onCancel={hideStartTimePicker}
 
@@ -1647,6 +1680,7 @@ const CreateServiceRequest = ({navigation, route}) => {
           isVisible={isEndTimePickerVisible}
           mode="time"
           display="spinner"
+          date={getTimePickerValue(schedule_end_time)}
           onConfirm={handleEndTimeConfirm}
           onCancel={hideEndTimePicker}
 

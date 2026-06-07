@@ -259,7 +259,12 @@ const Cart = ({navigation, route}) => {
   useFocusEffect(
     useCallback(() => {
       dispatch({type: SagaActions.GET_MY_CART, payload: {promoCodeId: ''}});
-    }, []),
+      const selected = route.params?.selectedAddress;
+      if (selected?._id) {
+        setLocationId(selected);
+        navigation.setParams({selectedAddress: undefined});
+      }
+    }, [route.params?.selectedAddress, navigation, dispatch]),
   );
 
   useEffect(() => {
@@ -2230,7 +2235,7 @@ const Cart = ({navigation, route}) => {
                 onPress={() => {
                   navigation.navigate(config.routes.USER_ADDRESS, {
                     from: 'Cart',
-                    setLocationId,
+                    returnScreen: config.routes.CART,
                   });
                 }}>
                 <Text

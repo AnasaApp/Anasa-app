@@ -1,6 +1,7 @@
 import {all, fork} from 'redux-saga/effects';
 import {watchAddAddress} from './AddAddressSaga';
 import {watchAddToCart} from './AddToCartSaga';
+import {watchAddPartyServicesToCart} from './AddPartyServicesToCartSaga';
 import {watchBookingDetail} from './BookingDetailSaga';
 import {watchCancelBooking} from './CancelBookingSaga';
 import {watchChangeDefaultAddress} from './ChangeDefaultAddress';
@@ -75,7 +76,11 @@ import {watchGetWalletInfo} from './GetWalletInfoSaga';
 import {watchGetMyOccasions} from './GetMyOccasionsSaga';
 import {watchCreateMyOccasion} from './CreateMyOccasionSaga';
 import {watchPlanForMe} from './PlanForMeSaga';
-
+import {watchViewParty} from './ViewPartySaga';
+import {watchGetPartyTypes} from './GetPartyTypesSaga';
+import {watchCreatePartyService} from './CreatePartyServiceSaga';
+import {watchDeleteParty} from './DeletePartySaga';
+import {watchDeletePartyService} from './DeletePartyServiceSaga';
 export default function* rootSaga() {
   return yield all([
     fork(watchLoginUser),
@@ -105,6 +110,7 @@ export default function* rootSaga() {
     fork(watchGetSupportDetail),
     fork(watchReplySupport),
     fork(watchAddToCart),
+    fork(watchAddPartyServicesToCart),
     fork(watchGetMyCart),
     fork(watchRemoveCart),
     fork(watchUpdateCart),
@@ -154,5 +160,10 @@ export default function* rootSaga() {
     fork(watchGetMyOccasions),
     fork(watchCreateMyOccasion),
     fork(watchPlanForMe),
+    fork(watchViewParty),
+    fork(watchGetPartyTypes),
+    fork(watchCreatePartyService),
+    fork(watchDeleteParty),
+    fork(watchDeletePartyService),
   ]);
 }

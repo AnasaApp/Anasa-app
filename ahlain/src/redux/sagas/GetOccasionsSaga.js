@@ -5,21 +5,15 @@ import {
   saveGetOccasions,
   saveGetOccasionsResponse,
 } from '../reducers/GetOccasionsReducer';
-import {UIReducer} from '../reducers';
-
 export function* GetOccasions(action) {
-  yield put(UIReducer.showLoader(true));
-
   const data = yield call(
     callApiService,
     SagaActions.GET_OCCASIONS,
-    action.payload,
+    action.payload || {},
   );
   console.log('GetOccasions', data?.result?.data);
   if (data.isSucceded) {
     yield put(saveGetOccasions(data?.result?.data));
-    // yield put(saveTokenAuth(data?.result?.data?.results?.token));
-    yield put(UIReducer.showLoader(false));
     return;
   }
 
@@ -28,7 +22,6 @@ export function* GetOccasions(action) {
     message: data?.result?.data?.message ?? 'Server Error!!',
   };
   yield put(saveGetOccasionsResponse(GetOccasionsResponse));
-  yield put(UIReducer.showLoader(false));
 }
 
 /**

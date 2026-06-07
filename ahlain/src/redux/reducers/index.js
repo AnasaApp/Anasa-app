@@ -76,6 +76,11 @@ import * as GetWalletInfoReducer from './GetWalletInfoReducer';
 import * as GetMyOccasionsReducer from './GetMyOccasionsReducer';
 import * as CreateMyOccasionReducer from './CreateMyOccasionReducer';
 import * as PlanForMeReducer from './PlanForMeReducer';
+import * as ViewPartyReducer from './ViewPartyReducer';
+import * as GetPartyTypesReducer from './GetPartyTypesReducer';
+import * as CreatePartyServiceReducer from './CreatePartyServiceReducer';
+import * as DeletePartyReducer from './DeletePartyReducer';
+import * as DeletePartyServiceReducer from './DeletePartyServiceReducer';
 
 const reducers = combineReducers({
   loginUserReducer: LoginUserReducer.loginUserSliceReducer,
@@ -169,6 +174,13 @@ const reducers = combineReducers({
   CreateMyOccasionReducer:
     CreateMyOccasionReducer.CreateMyOccasionSliceReducer,
   PlanForMeReducer: PlanForMeReducer.PlanForMeSliceReducer,
+  ViewPartyReducer: ViewPartyReducer.ViewPartySliceReducer,
+  GetPartyTypesReducer: GetPartyTypesReducer.GetPartyTypesSliceReducer,
+  CreatePartyServiceReducer:
+    CreatePartyServiceReducer.CreatePartyServiceSliceReducer,
+  DeletePartyReducer: DeletePartyReducer.DeletePartySliceReducer,
+  DeletePartyServiceReducer:
+    DeletePartyServiceReducer.DeletePartyServiceSliceReducer,
 });
 
 export {
@@ -250,4 +262,9 @@ export {
   GetMyOccasionsReducer,
   CreateMyOccasionReducer,
   PlanForMeReducer,
+  ViewPartyReducer,
+  GetPartyTypesReducer,
+  CreatePartyServiceReducer,
+  DeletePartyReducer,
+  DeletePartyServiceReducer,
 };

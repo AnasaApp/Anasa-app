@@ -5,11 +5,7 @@ import {
   saveGetRecommended,
   saveGetRecommendedResponse,
 } from '../reducers/GetRecommendedReducer';
-import {UIReducer} from '../reducers';
-
 export function* GetRecommended(action) {
-  yield put(UIReducer.showLoader(true));
-
   const data = yield call(
     callApiService,
     SagaActions.GET_RECOMMENDATION,
@@ -18,8 +14,6 @@ export function* GetRecommended(action) {
   console.log('GetRecommended', data?.result?.data);
   if (data.isSucceded) {
     yield put(saveGetRecommended(data?.result?.data));
-    // yield put(saveTokenAuth(data?.result?.data?.results?.token));
-    yield put(UIReducer.showLoader(false));
     return;
   }
 
@@ -28,7 +22,6 @@ export function* GetRecommended(action) {
     message: data?.result?.data?.message ?? 'Server Error!!',
   };
   yield put(saveGetRecommendedResponse(GetRecommendedResponse));
-  yield put(UIReducer.showLoader(false));
 }
 
 /**

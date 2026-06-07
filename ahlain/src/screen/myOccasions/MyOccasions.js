@@ -11,10 +11,22 @@ import {
 } from 'react-native';
 import {useDispatch, useSelector} from 'react-redux';
 import {useTranslation} from 'react-i18next';
-import moment from 'moment';
 import config from '../../config';
+import {
+  getPartyDisplayName,
+  formatPartyMetaLine,
+  enrichPartyWithCachedMeta,
+  getPartyDateStatus,
+  isPartyDateExpired,
+  hasPartyOccasionDate,
+} from '../../utils/partyHelpers';
+import usePartyMetaCache from '../../utils/usePartyMetaCache';
+import OccasionDateStatusTag from '../../conponents/OccasionDateStatusTag';
 import AppHeader from '../../conponents/AppHeader';
-import {GetMyOccasionsReducer} from '../../redux/reducers';
+import AppImage from '../../conponents/AppImage';
+import {AppButton} from '../../conponents';
+import {CommonModal} from '../../conponents/CommonModal';
+import {DeletePartyReducer, GetMyOccasionsReducer} from '../../redux/reducers';
 import {SagaActions} from '../../redux/sagas/SagaActions';
 import Toast from 'react-native-simple-toast';
 
@@ -28,16 +40,43 @@ const MyOccasions = ({navigation}) => {
     GetMyOccasionsReducer.selectGetMyOccasionsResponse,
   );
   const [occasions, setOccasions] = useState([]);
+  const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
+  const [partyToDelete, setPartyToDelete] = useState(null);
+  const partyMetaVersion = usePartyMetaCache();
+  const DeletePartyResponse = useSelector(
+    DeletePartyReducer.selectDeletePartyData,
+  );
+  const DeletePartyErrorResponse = useSelector(
+    DeletePartyReducer.selectDeletePartyResponse,
+  );
+  const refreshOccasions = () => {
+    dispatch({
+      type: SagaActions.GET_MY_OCCASIONS,
+      payload: {page: 1, pageSize: 50},
+    });
+  };
+
+  const callDeletePartyApi = partyId => {
+    dispatch({
+      type: SagaActions.DELETE_PARTY,
+      payload: {uri: '/' + partyId},
+    });
+  };
 
   useEffect(() => {
-    dispatch({type: SagaActions.GET_MY_OCCASIONS, payload: ''});
+    dispatch({
+      type: SagaActions.GET_MY_OCCASIONS,
+      payload: {page: 1, pageSize: 50},
+    });
   }, []);
 
   useEffect(() => {
     if (GetMyOccasionsData != null) {
-      setOccasions(GetMyOccasionsData?.results?.occasions ?? []);
+      setOccasions(
+        (GetMyOccasionsData?.results?.parties ?? []).map(enrichPartyWithCachedMeta),
+      );
     }
-  }, [GetMyOccasionsData]);
+  }, [GetMyOccasionsData, partyMetaVersion]);
 
   useEffect(() => {
     if (GetMyOccasionsError != null) {
@@ -49,9 +88,45 @@ const MyOccasions = ({navigation}) => {
     }
   }, [GetMyOccasionsError]);
 
+  useEffect(() => {
+    if (DeletePartyResponse != null) {
+      if (DeletePartyResponse?.error === false) {
+        Toast.show(
+          DeletePartyResponse?.message ?? t('Delete Occasion'),
+          Toast.LONG,
+        );
+        refreshOccasions();
+        dispatch(DeletePartyReducer.removeDeletePartyResponse());
+      }
+    }
+  }, [DeletePartyResponse]);
+
+  useEffect(() => {
+    if (DeletePartyErrorResponse != null) {
+      if (DeletePartyErrorResponse?.message) {
+        Toast.show(DeletePartyErrorResponse.message, Toast.LONG);
+      }
+      dispatch(DeletePartyReducer.removeDeletePartyResponse());
+    }
+  }, [DeletePartyErrorResponse]);
+
+  const openDeleteModal = party => {
+    setPartyToDelete(party);
+    setIsDeleteModalVisible(true);
+  };
+
+  const confirmDeleteParty = () => {
+    if (!partyToDelete?._id) {
+      return;
+    }
+    setIsDeleteModalVisible(false);
+    callDeletePartyApi(partyToDelete._id);
+    setPartyToDelete(null);
+  };
+
   // Refresh list after creating a new occasion
   const onFocus = () => {
-    dispatch({type: SagaActions.GET_MY_OCCASIONS, payload: ''});
+    refreshOccasions();
   };
 
   useEffect(() => {
@@ -72,52 +147,80 @@ const MyOccasions = ({navigation}) => {
   );
 
   const renderItem = ({item, index}) => {
-    const daysLeft = moment(item?.date).diff(moment(), 'days');
+    const party = enrichPartyWithCachedMeta(item);
+    const displayName = getPartyDisplayName(party);
+    const metaLine = formatPartyMetaLine(party);
+    const dateStatus = getPartyDateStatus(party);
+    const isExpired = isPartyDateExpired(party);
+    const showDateTag = hasPartyOccasionDate(party);
     return (
-      <TouchableOpacity
-        activeOpacity={0.8}
+      <View
         key={index}
-        style={styles.card}
-        onPress={() =>
-          navigation.navigate(config.routes.OCCASION_PLANNING_TYPE, {
-            occasion: item,
-          })
-        }>
+        style={[styles.card, isExpired && styles.cardExpired]}>
         <View
           style={[
             styles.cardAccent,
             {
-              backgroundColor:
-                index % 3 === 0
-                  ? config.colors.orangeColor
-                  : index % 3 === 1
-                  ? config.colors.buttonColor
-                  : config.colors.yellowColor,
+              backgroundColor: isExpired
+                ? config.colors.Gray
+                : index % 3 === 0
+                ? config.colors.orangeColor
+                : index % 3 === 1
+                ? config.colors.buttonColor
+                : config.colors.yellowColor,
             },
           ]}
         />
         <View style={styles.cardContent}>
           <View style={styles.cardTopRow}>
-            <View style={styles.iconCircle}>
-              <Text style={styles.iconEmoji}>🎂</Text>
-            </View>
-            <View style={{flex: 1, marginLeft: 12}}>
-              <Text style={styles.occasionName} numberOfLines={1}>
-                {item?.name}
-              </Text>
-              <Text style={styles.occasionDate}>
-                {moment(item?.date).format('DD MMM YYYY')}
-              </Text>
-            </View>
-            {daysLeft >= 0 && (
-              <View style={styles.daysBadge}>
-                <Text style={styles.daysNum}>{daysLeft}</Text>
-                <Text style={styles.daysLabel}>{t('days')}</Text>
+            <TouchableOpacity
+              activeOpacity={0.8}
+              style={styles.cardMainPress}
+              onPress={() =>
+                navigation.navigate(config.routes.OCCASION_VIEW, {
+                  occasion: party,
+                })
+              }>
+              <View style={styles.iconCircle}>
+                <Text style={styles.iconEmoji}>🎂</Text>
               </View>
-            )}
+              <View style={{flex: 1, marginLeft: 12}}>
+                <View style={styles.cardTitleRow}>
+                  <Text style={styles.occasionName} numberOfLines={1}>
+                    {displayName}
+                  </Text>
+                  {showDateTag ? (
+                    <OccasionDateStatusTag
+                      party={party}
+                      status={dateStatus}
+                      style={{marginLeft: 8}}
+                    />
+                  ) : null}
+                </View>
+                <Text style={styles.occasionDate}>{metaLine}</Text>
+              </View>
+            </TouchableOpacity>
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => openDeleteModal(party)}
+              hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
+              style={styles.deleteBtn}>
+              <AppImage
+                imageSource={config.ImageList.deleteIcon}
+                imageStyle={styles.deleteIcon}
+                resizeMode="contain"
+              />
+            </TouchableOpacity>
           </View>
-          <View style={styles.cardFooter}>
-            <Text style={styles.planLabel}>{t('Tap to plan this occasion')}</Text>
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={() =>
+              navigation.navigate(config.routes.OCCASION_VIEW, {
+                occasion: party,
+              })
+            }
+            style={styles.cardFooter}>
+            <Text style={styles.planLabel}>{t('Tap to view occasion')}</Text>
             <Image
               source={require('../../assets/images/backArrowIcon.png')}
               style={[
@@ -125,9 +228,9 @@ const MyOccasions = ({navigation}) => {
                 {transform: [{rotate: I18nManager.isRTL ? '180deg' : '0deg'}]},
               ]}
             />
-          </View>
+          </TouchableOpacity>
         </View>
-      </TouchableOpacity>
+      </View>
     );
   };
 
@@ -166,6 +269,38 @@ const MyOccasions = ({navigation}) => {
         onPress={() => navigation.navigate(config.routes.CREATE_OCCASION)}>
         <Text style={styles.fabPlus}>+</Text>
       </TouchableOpacity>
+
+      <CommonModal
+        navigation={navigation}
+        isCommonModalVisible={isDeleteModalVisible}
+        setIsCommonModalVisible={setIsDeleteModalVisible}
+        title={t('Delete Occasion')}
+        subTitle={t('Are you sure you want to delete this occasion?')}
+        showButtonInRow={true}
+        FirstButton={() => (
+          <AppButton
+            buttonStyle={{
+              backgroundColor: config.colors.white,
+              borderWidth: 1,
+              borderColor: config.colors.orangeColor,
+              width: '48%',
+            }}
+            text={t('No')}
+            textStyle={{color: config.colors.orangeColor}}
+            onPress={() => {
+              setIsDeleteModalVisible(false);
+              setPartyToDelete(null);
+            }}
+          />
+        )}
+        SecondButton={() => (
+          <AppButton
+            buttonStyle={{width: '48%'}}
+            text={t('Yes')}
+            onPress={confirmDeleteParty}
+          />
+        )}
+      />
     </View>
   );
 };
@@ -201,6 +336,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 6,
   },
+  cardExpired: {
+    opacity: 0.88,
+  },
   cardAccent: {
     width: 6,
     borderTopLeftRadius: 16,
@@ -213,6 +351,25 @@ const styles = StyleSheet.create({
   cardTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  cardMainPress: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  deleteBtn: {
+    marginLeft: 8,
+    padding: 4,
+  },
+  deleteIcon: {
+    width: 22,
+    height: 22,
+    tintColor: config.colors.Gray,
+  },
+  cardTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
   },
   iconCircle: {
     width: 46,

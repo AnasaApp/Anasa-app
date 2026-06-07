@@ -1,9 +1,8 @@
-import React, {useEffect, useState} from 'react';
+import React, {useCallback, useEffect, useState} from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   Image,
   ScrollView,
   FlatList,
@@ -33,42 +32,130 @@ const VendorDetails = ({navigation, route}) => {
     VendorProfileReducer.selectVendorProfileData,
   );
 
-  const [vendorData, setVendorData] = useState('');
-  //hooks calling
-  useEffect(() => {
-    if (VendorProfileResponse != null) {
-      if (VendorProfileResponse?.error == false) {
-        console.log(
-          'VendorProfileResponse?.results',
-          VendorProfileResponse?.results,
-        );
-        setVendorData(VendorProfileResponse?.results?.vendor);
-        dispatch(VendorProfileReducer.removeVendorProfileResponse());
-      }
-    }
-  }, [VendorProfileResponse]);
-  useEffect(() => {
-    callVendorProfileApi('', '');
-  }, []);
+  const vendorId = route?.params?.vendor_id;
 
-  const callVendorProfileApi = (sortByPrice, sortByName) => {
-    const payload = {
-      uri:
-        '/' +
-        route?.params?.vendor_id +
-        '?sort_by_price=' +
-        sortByPrice +
-        '&sort_by_name=' +
-        sortByName,
-    };
-    trackEvents('vendor_profile', {
-      vendor_id: route?.params?.vendor_id,
-    });
-    dispatch({type: SagaActions.GET_VENDOR_PROFILE, payload});
-  };
-  const [reviewLength, setReviewLength] = useState(1);
+  const [vendorData, setVendorData] = useState(null);
+  const [categories, setCategories] = useState([]);
+  const [selectedCategoryId, setSelectedCategoryId] = useState(null);
   const [sortByPrice, setSortByPrice] = useState('');
   const [sortByName, setSortByName] = useState('');
+
+  const getCategoryLabel = useCallback(
+    category =>
+      I18nManager.isRTL
+        ? category?.name_ar || category?.name_en || ''
+        : category?.name_en || category?.name_ar || '',
+    [],
+  );
+
+  const callVendorProfileApi = useCallback(
+    ({
+      sortByPrice: priceSort = sortByPrice,
+      sortByName: nameSort = sortByName,
+      categoryId = selectedCategoryId,
+    } = {}) => {
+      if (!vendorId) {
+        return;
+      }
+
+      const query = [
+        `sort_by_price=${priceSort ?? ''}`,
+        `sort_by_name=${nameSort ?? ''}`,
+      ];
+      if (categoryId) {
+        query.push(`category=${categoryId}`);
+      }
+
+      const payload = {
+        uri: `/${vendorId}?${query.join('&')}`,
+      };
+
+      trackEvents('vendor_profile', {
+        vendor_id: vendorId,
+        category_id: categoryId || 'all',
+      });
+      dispatch({type: SagaActions.GET_VENDOR_PROFILE, payload});
+    },
+    [vendorId, sortByPrice, sortByName, selectedCategoryId, dispatch],
+  );
+
+  useEffect(() => {
+    if (VendorProfileResponse?.error !== false) {
+      return;
+    }
+
+    const results = VendorProfileResponse?.results;
+    if (results?.vendor) {
+      setVendorData(results.vendor);
+    }
+    if (Array.isArray(results?.categories) && results.categories.length > 0) {
+      setCategories(results.categories);
+    }
+    dispatch(VendorProfileReducer.removeVendorProfileResponse());
+  }, [VendorProfileResponse, dispatch]);
+
+  useEffect(() => {
+    if (!vendorId) {
+      return;
+    }
+    callVendorProfileApi({
+      sortByPrice: '',
+      sortByName: '',
+      categoryId: null,
+    });
+    // Initial vendor profile load only
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vendorId]);
+
+  const onSelectCategory = categoryId => {
+    setSelectedCategoryId(categoryId);
+    callVendorProfileApi({
+      categoryId,
+      sortByPrice,
+      sortByName,
+    });
+  };
+
+  const renderCategoryChip = (label, categoryId, isActive) => (
+    <TouchableOpacity
+      key={categoryId ?? 'all'}
+      activeOpacity={0.85}
+      onPress={() => onSelectCategory(categoryId)}
+      style={[styles.categoryChip, isActive && styles.categoryChipActive]}>
+      <Text
+        numberOfLines={1}
+        style={[
+          styles.categoryChipText,
+          isActive && styles.categoryChipTextActive,
+        ]}>
+        {label}
+      </Text>
+    </TouchableOpacity>
+  );
+
+  const renderCategoryFilter = () => {
+    if (!categories.length) {
+      return null;
+    }
+
+    return (
+      <View style={styles.categorySection}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.categoryScrollContent}>
+          {renderCategoryChip(t('All'), null, selectedCategoryId == null)}
+          {categories.map(category =>
+            renderCategoryChip(
+              getCategoryLabel(category),
+              category?._id,
+              selectedCategoryId === category?._id,
+            ),
+          )}
+        </ScrollView>
+      </View>
+    );
+  };
   const getReviewStarRatingView = rating => {
     let view = [];
     for (let index = 0; index < rating; index++) {
@@ -249,14 +336,7 @@ const VendorDetails = ({navigation, route}) => {
             flex: 1,
             backgroundColor: config.colors.BACKGROUNDCOLOR,
           }}>
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              marginVertical: 15,
-              marginHorizontal: 15,
-            }}>
+          <View style={styles.productsHeaderRow}>
             <Text style={styles.serviceText}>{t('All Products')}</Text>
             <View style={{flexDirection: 'row', alignItems: 'center'}}>
               <TouchableOpacity
@@ -265,10 +345,16 @@ const VendorDetails = ({navigation, route}) => {
                 onPress={() => {
                   if (sortByPrice == 1) {
                     setSortByPrice(0);
-                    callVendorProfileApi(0, '');
+                    callVendorProfileApi({
+                      sortByPrice: 0,
+                      sortByName: '',
+                    });
                   } else {
                     setSortByPrice(1);
-                    callVendorProfileApi(1, '');
+                    callVendorProfileApi({
+                      sortByPrice: 1,
+                      sortByName: '',
+                    });
                   }
                   setSortByName('');
                 }}>
@@ -284,10 +370,16 @@ const VendorDetails = ({navigation, route}) => {
                 activeOpacity={0.8}
                 onPress={() => {
                   if (sortByName == 1) {
-                    callVendorProfileApi('', 0);
+                    callVendorProfileApi({
+                      sortByPrice: '',
+                      sortByName: 0,
+                    });
                     setSortByName(0);
                   } else {
-                    callVendorProfileApi('', 1);
+                    callVendorProfileApi({
+                      sortByPrice: '',
+                      sortByName: 1,
+                    });
                     setSortByName(1);
                   }
                   setSortByPrice('');
@@ -300,20 +392,22 @@ const VendorDetails = ({navigation, route}) => {
               </TouchableOpacity>
             </View>
           </View>
-          <View
-            style={{
-              flexDirection: 'row',
-              flexWrap: 'wrap',
-            }}>
+
+          {renderCategoryFilter()}
+
+          <View style={styles.productsGridWrap}>
+            {vendorData?.services?.length === 0 ? (
+              <View style={styles.emptyProductsWrap}>
+                <Text style={styles.emptyProductsText}>
+                  {selectedCategoryId
+                    ? t('No products in this category')
+                    : t('No products available')}
+                </Text>
+              </View>
+            ) : null}
             {vendorData?.services?.map((item, index) => {
               return (
-                <View
-                  key={index}
-                  style={{
-                    width: '48%',
-
-                    paddingHorizontal: 10,
-                  }}>
+                <View key={index} style={styles.productCardCol}>
                   <TouchableOpacity
                     activeOpacity={0.8}
                     onPress={() =>
@@ -321,68 +415,27 @@ const VendorDetails = ({navigation, route}) => {
                         service_id: item?._id,
                       })
                     }
-                    style={{
-                      backgroundColor: config.colors.white,
-                      borderRadius: 12,
-                      paddingBottom: 10,
-                      marginBottom: 15,
-                    }}>
+                    style={styles.productCard}>
                     <AppImage
-                      imageStyle={{
-                        height: 130,
-                        width: '100%',
-                        resizeMode: 'cover',
-                        borderTopLeftRadius: 12,
-                        borderTopRightRadius: 12,
-                      }}
+                      imageStyle={styles.productCardImage}
                       resizeMode={'cover'}
                       uri={item?.images[0]}
                     />
-                    <View
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        paddingHorizontal: 10,
-                        marginTop: 10,
-                      }}>
+                    <View style={styles.productCardBody}>
                       <Text
                         numberOfLines={2}
-                        style={{
-                          fontFamily: config.fonts.Poppins_SemiBold,
-                          fontSize: 14,
-                          color: config.colors.Black,
-                          textTransform: 'capitalize',
-                          flex: 1,
-                          textAlign: 'left',
-                        }}>
+                        style={styles.productCardTitle}>
                         {I18nManager.isRTL ? item?.name_ar : item.name_en}
                       </Text>
-                      <View
-                        style={{
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                        }}>
-                        <Image
-                          style={{
-                            width: 20,
-                            height: 20,
-                          }}
-                          resizeMode="contain"
-                          source={require('../../assets/images/addCardtroly.png')}
-                        />
-                      </View>
+                      <Image
+                        style={styles.productCartIcon}
+                        resizeMode="contain"
+                        source={require('../../assets/images/addCardtroly.png')}
+                      />
                     </View>
                     <Text
                       numberOfLines={1}
-                      style={{
-                        fontFamily: config.fonts.Poppins_Medium,
-                        fontSize: 14,
-                        color: config.colors.orangeColor,
-                        textAlign: 'left',
-                        marginHorizontal: 10,
-                        marginTop: 5,
-                      }}>
+                      style={styles.productCardPrice}>
                       {item.price}
                       {' SAR'}
                     </Text>
@@ -392,18 +445,21 @@ const VendorDetails = ({navigation, route}) => {
             })}
           </View>
           {vendorData?.ratings?.length > 0 && (
-            <View style={{marginTop: 10}}>
+            <View style={styles.reviewsSection}>
               <Text style={styles.serviceText}>{t('Ratings & Reviews')}</Text>
-              {vendorData?.ratings?.slice(0, reviewLength)?.map((r, i) => {
-                return (
-                  <View
-                    key={i}
-                    style={{
-                      backgroundColor: config.colors.white,
-                      padding: 10,
-                      borderRadius: 10,
-                      marginBottom: 10,
-                    }}>
+              <FlatList
+                data={vendorData?.ratings}
+                keyExtractor={(item, idx) =>
+                  item?._id ? String(item._id) : `rating-${idx}`
+                }
+                horizontal
+                pagingEnabled
+                snapToAlignment="start"
+                decelerationRate="fast"
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.reviewsListContent}
+                renderItem={({item: r}) => (
+                  <View style={styles.reviewCard}>
                     <View style={styles.navedCss}>
                       <View style={styles.starCss}>
                         <Image
@@ -415,11 +471,8 @@ const VendorDetails = ({navigation, route}) => {
                               : require('../../assets/images/user_icon.png')
                           }
                         />
-
                         <View style={styles.ballonCss}>
-                          <Text style={styles.navedText}>
-                            {r?.buyer?.full_name}
-                          </Text>
+                          <Text style={styles.navedText}>{r?.buyer?.full_name}</Text>
                           <View style={styles.starCss}>
                             {getReviewStarRatingView(r?.rating)}
                           </View>
@@ -429,18 +482,12 @@ const VendorDetails = ({navigation, route}) => {
                         {moment(r?.createdAt).fromNow()}
                       </Text>
                     </View>
-                    <Text style={styles.reallyText}>{r.feedback}</Text>
+                    <Text numberOfLines={4} style={styles.reallyText}>
+                      {r.feedback}
+                    </Text>
                   </View>
-                );
-              })}
-              {vendorData?.ratings?.length != reviewLength && (
-                <TouchableOpacity
-                  activeOpacity={0.5}
-                  style={styles.viewAllCss}
-                  onPress={() => setReviewLength(vendorData?.ratings?.length)}>
-                  <Text style={styles.viewAllText}>{t('View All')}</Text>
-                </TouchableOpacity>
-              )}
+                )}
+              />
             </View>
           )}
         </View>
@@ -641,6 +688,14 @@ const styles = StyleSheet.create({
     marginTop: 2,
     textAlign: 'left',
   },
+  categorySection: {
+    marginBottom: 4,
+    paddingHorizontal: 15,
+  },
+  categoryScrollContent: {
+    paddingVertical: 4,
+    paddingRight: 8,
+  },
   categoryChip: {
     paddingHorizontal: 16,
     paddingVertical: 8,
@@ -649,11 +704,24 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: config.colors.Gray + '40',
     marginRight: 8,
+    maxWidth: 200,
     shadowColor: '#000',
     shadowOffset: {width: 0, height: 1},
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 2,
+  },
+  emptyProductsWrap: {
+    width: '100%',
+    paddingVertical: 32,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+  },
+  emptyProductsText: {
+    fontFamily: config.fonts.Poppins_Regular,
+    fontSize: 14,
+    color: config.colors.Gray,
+    textAlign: 'center',
   },
   categoryChipActive: {
     backgroundColor: config.colors.orangeColor,
@@ -667,6 +735,92 @@ const styles = StyleSheet.create({
   categoryChipTextActive: {
     color: config.colors.white,
     fontFamily: config.fonts.Poppins_SemiBold,
+  },
+  productsHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 14,
+    marginBottom: 12,
+    paddingHorizontal: 16,
+  },
+  productsGridWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+  },
+  productCardCol: {
+    width: '48.6%',
+    marginBottom: 12,
+  },
+  productCard: {
+    backgroundColor: config.colors.white,
+    borderRadius: 14,
+    paddingBottom: 10,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 1},
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  productCardImage: {
+    height: 132,
+    width: '100%',
+    resizeMode: 'cover',
+    borderTopLeftRadius: 14,
+    borderTopRightRadius: 14,
+  },
+  productCardBody: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    paddingHorizontal: 10,
+    marginTop: 10,
+  },
+  productCardTitle: {
+    flex: 1,
+    minHeight: 40,
+    fontFamily: config.fonts.Poppins_SemiBold,
+    fontSize: 14,
+    color: config.colors.Black,
+    textTransform: 'capitalize',
+    textAlign: 'left',
+  },
+  productCartIcon: {
+    width: 20,
+    height: 20,
+    marginLeft: 8,
+    marginTop: 1,
+  },
+  productCardPrice: {
+    fontFamily: config.fonts.Poppins_Medium,
+    fontSize: 14,
+    color: config.colors.orangeColor,
+    textAlign: 'left',
+    marginHorizontal: 10,
+    marginTop: 6,
+  },
+  reviewsSection: {
+    marginTop: 10,
+  },
+  reviewsListContent: {
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 8,
+  },
+  reviewCard: {
+    width: config.constants.Width - 68,
+    backgroundColor: config.colors.white,
+    borderRadius: 14,
+    padding: 12,
+    marginRight: 16,
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 1},
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
   },
 });
 

@@ -24,7 +24,7 @@ import Geolocation from 'react-native-geolocation-service';
 import AppButton from '../../conponents/AppButton';
 import {check, PERMISSIONS, request} from 'react-native-permissions';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import MapView, {Marker} from 'react-native-maps';
+import MapView, {PROVIDER_GOOGLE} from 'react-native-maps';
 import axios from 'axios';
 import {useDispatch, useSelector} from 'react-redux';
 import {SagaActions} from '../../redux/sagas/SagaActions';
@@ -36,11 +36,27 @@ import {
 import Toast from 'react-native-simple-toast';
 import {AppTextInput} from '../../conponents';
 import {useTranslation} from 'react-i18next';
+import {buildMapRegion, isValidCoordinate} from '../../utils/mapHelpers';
+import useMapCamera from '../../hooks/useMapCamera';
 
 const AddNewLocation = ({navigation, route}) => {
   const {t, i18n} = useTranslation();
   const dispatch = useDispatch();
   const searchBarInput = useRef();
+
+  const initialLat =
+    route?.params?.latitude ?? route?.params?.edit_address?.latitude;
+  const initialLng =
+    route?.params?.longitude ?? route?.params?.edit_address?.longitude;
+
+  const {
+    mapRef,
+    mapRegion: region,
+    isMapReady,
+    moveMapTo,
+    onMapReady,
+    onRegionChangeComplete: handleRegionChangeComplete,
+  } = useMapCamera(initialLat, initialLng);
 
   const AddAddressResponse = useSelector(
     AddAddressReducer.selectAddAddressData,
@@ -50,13 +66,6 @@ const AddNewLocation = ({navigation, route}) => {
   );
 
   const GetCitiesResponse = useSelector(GetCitiesReducer.selectGetCitiesData);
-  const [region, setRegion] = useState({
-    latitude: 0.0,
-    longitude: 0.0,
-
-    latitudeDelta: 0.003,
-    longitudeDelta: 0.003,
-  });
   const [House, setHouse] = useState('');
   const [Building, setBuilding] = useState('');
   const [locality, setLocality] = useState('');
@@ -95,7 +104,11 @@ const AddNewLocation = ({navigation, route}) => {
     {key: '3', value: 'Dubai'},
   ];
   useEffect(() => {
-    requestLocationPermission();
+    if (isValidCoordinate(initialLat, initialLng)) {
+      getAddressFromCoordinates(initialLat, initialLng, {moveCamera: false});
+    } else {
+      requestLocationPermission();
+    }
   }, []);
   useEffect(() => {
     setCitiesList([]);
@@ -180,7 +193,10 @@ const AddNewLocation = ({navigation, route}) => {
           await setCurrentLocation(val);
           console.log('You can use location');
         } else if (res === 'denied') {
-          const res2 = request(PERMISSIONS.ANDROID.ACCESS_FINE_LOCATION);
+          const res2 = await request(PERMISSIONS.ANDROID.ACCESS_FINE_LOCATION);
+          if (res2 === 'granted') {
+            await setCurrentLocation(val);
+          }
         } else if (res === 'blocked') {
           alert(t('Please enable location permission from app setting'));
         }
@@ -206,20 +222,14 @@ const AddNewLocation = ({navigation, route}) => {
     searchBarInput.current.blur();
   };
   const getLocation_data = place_id => {
-    const url = `https://maps.googleapis.com/maps/api/geocode/json?place_id=${place_id}&key=AIzaSyBIk9oE4wqqpQ3Yt-bj3LvPbKJhLyc5g5Q`;
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?place_id=${place_id}&key=${config.constants.MAP_API_KEY}`;
     axios
       .get(url)
       .then(res => {
-        setRegion({
-          latitude: res.data.results[0]?.geometry?.location?.lat,
-          longitude: res.data.results[0]?.geometry?.location?.lng,
-          latitudeDelta: 0.003,
-          longitudeDelta: 0.003,
-        });
-        getAddressFromCoordinates(
-          res.data.results[0]?.geometry?.location?.lat,
-          res.data.results[0]?.geometry?.location?.lng,
-        );
+        const lat = res.data.results[0]?.geometry?.location?.lat;
+        const lng = res.data.results[0]?.geometry?.location?.lng;
+        moveMapTo(lat, lng);
+        getAddressFromCoordinates(lat, lng, {moveCamera: false});
         setSearchResults([]);
         setSearchText('');
         setBottomSheetShow(true);
@@ -230,58 +240,28 @@ const AddNewLocation = ({navigation, route}) => {
   async function setCurrentLocation(val) {
     Geolocation.getCurrentPosition(
       async position => {
-        console.log('home screen====>>', position);
+        const {latitude: lat, longitude: lng} = position.coords;
         await AsyncStorage.setItem(
           config.AsyncKeys.USER_LOCATION,
-          JSON.stringify({
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-          }),
+          JSON.stringify({latitude: lat, longitude: lng}),
         );
-        console.log('editAddress', editAddress);
-        if (editAddress != '') {
-          if (val == 'current') {
-            setRegion({
-              latitude: position.coords.latitude,
-              longitude: position.coords.longitude,
-              latitudeDelta: 0.003,
-              longitudeDelta: 0.003,
-            });
-            getAddressFromCoordinates(
-              position.coords.latitude,
-              position.coords.longitude,
-            );
-          } else {
-            setRegion({
-              latitude: parseFloat(editAddress?.latitude),
-              longitude: parseFloat(editAddress?.longitude),
-              latitudeDelta: 0.003,
-              longitudeDelta: 0.003,
-            });
-            setHouse(
-              route?.params?.edit_address?.house_number
-                ? '' + route?.params?.edit_address?.house_number
-                : '',
-            );
-            setBuilding(route?.params?.edit_address?.building_name);
-            setLocality(route?.params?.edit_address?.locality);
-            setCity({
-              city_ar: route?.params?.edit_address?.city_ar,
-              city: route?.params?.edit_address?.city,
-            });
-            setCountry(route?.params?.edit_address?.country);
-          }
-        } else {
-          setRegion({
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            latitudeDelta: 0.003,
-            longitudeDelta: 0.003,
-          });
-          getAddressFromCoordinates(
-            position.coords.latitude,
-            position.coords.longitude,
+        if (editAddress != '' && val !== 'current') {
+          moveMapTo(editAddress?.latitude, editAddress?.longitude);
+          setHouse(
+            route?.params?.edit_address?.house_number
+              ? '' + route?.params?.edit_address?.house_number
+              : '',
           );
+          setBuilding(route?.params?.edit_address?.building_name);
+          setLocality(route?.params?.edit_address?.locality);
+          setCity({
+            city_ar: route?.params?.edit_address?.city_ar,
+            city: route?.params?.edit_address?.city,
+          });
+          setCountry(route?.params?.edit_address?.country);
+        } else {
+          moveMapTo(lat, lng);
+          getAddressFromCoordinates(lat, lng, {moveCamera: false});
         }
       },
 
@@ -335,40 +315,44 @@ const AddNewLocation = ({navigation, route}) => {
     }
   };
 
-  const onRegionChange = region => {
-    console.log('region', region);
+  const onRegionChange = (lat, lng) => {
     setBottomSheetShow(true);
-    let latitude = '';
-    let longitude = '';
-    if (region.latitude == editAddress?.latitude) {
-      latitude = editAddress.latitude;
-      longitude = editAddress.longitude;
-    } else {
-      latitude = region.latitude;
-      longitude = region.longitude;
-    }
-    getAddressFromCoordinates(latitude, longitude);
+    getAddressFromCoordinates(lat, lng, {moveCamera: false});
   };
 
-  function getAddressFromCoordinates(lat, lng) {
-    console.log('lat', lat + lng);
-    const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${
-      lat + ',' + lng
-    }&key=AIzaSyBIk9oE4wqqpQ3Yt-bj3LvPbKJhLyc5g5Q`;
+  function getAddressFromCoordinates(lat, lng, options = {}) {
+    const {moveCamera = true} = options;
+    if (!isValidCoordinate(lat, lng)) {
+      return;
+    }
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${Number(
+      lat,
+    )},${Number(lng)}&key=${config.constants.MAP_API_KEY}`;
     axios
       .get(url)
       .then(res => {
-        setAddress(res.data?.results[0]?.formatted_address);
+        const result = res.data?.results?.[0];
+        if (!result) {
+          return;
+        }
+        const geoLat = result.geometry?.location?.lat;
+        const geoLng = result.geometry?.location?.lng;
 
-        // console.log("lng update . . . ======>>>>>>.",resJson.results[0]?.geometry?.location?.lng)
-        setlatitude(res.data?.results[0]?.geometry?.location?.lat);
-        setlongitude(res.data?.results[0]?.geometry?.location?.lng);
-        const full_address = res.data?.results[0]?.formatted_address.split(',');
-        setBuilding(full_address[1]);
-        const component = res.data?.results[0]?.address_components;
+        setAddress(result.formatted_address ?? '');
+        setlatitude(geoLat);
+        setlongitude(geoLng);
 
-        for (let i = 0; i < component?.length; i++) {
-          console.log('first', component[i]);
+        if (moveCamera && isValidCoordinate(geoLat, geoLng)) {
+          moveMapTo(geoLat, geoLng);
+        }
+
+        const full_address = result.formatted_address?.split(',') ?? [];
+        if (full_address[1]) {
+          setBuilding(full_address[1]);
+        }
+        const component = result.address_components ?? [];
+
+        for (let i = 0; i < component.length; i++) {
           if (
             component[i]?.types.includes('premise') ||
             component[i]?.types.includes('street_number')
@@ -376,89 +360,40 @@ const AddNewLocation = ({navigation, route}) => {
             setHouse(component[i]?.long_name);
           } else if (component[i]?.types.includes('postal_code')) {
             setpostCode(component[i]?.long_name);
-          } else if (
-            component[i]?.types.includes('administrative_area_level_1')
-          ) {
-            // setaddi_number(component[i]?.long_name)
-            // setCity(component[i]?.long_name);
           } else if (component[i]?.types.includes('locality')) {
-            // setaddi_number(component[i]?.long_name)
             setLocality(component[i]?.long_name);
           } else if (component[i]?.types.includes('country')) {
-            // setaddi_number(component[i]?.long_name)
             setCountry(component[i]?.long_name);
           }
         }
       })
       .catch(error => console.log('error', error));
-    console.log(url);
   }
   return (
     <View style={styles.container}>
       <>
         <MapView
+          ref={mapRef}
+          provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
           style={{
             flex: 1,
             width: '100%',
             height: Dimensions.get('window').height,
           }}
-          region={region}
-          onRegionChangeComplete={region => onRegionChange(region)}
+          initialRegion={buildMapRegion(initialLat, initialLng)}
+          showsUserLocation
+          showsMyLocationButton={false}
+          onMapReady={onMapReady}
+          onRegionChangeComplete={r =>
+            handleRegionChangeComplete(r, onRegionChange)
+          }
           onTouchStart={() => setBottomSheetShow(false)}
-
-          // minZoomLevel={10}
-          // onRegionChange={onAnnotationPress()}
-          // provider={PROVIDER_GOOGLE}
-
-          // zoomEnabled={true}
-          // mapType={'satellite'}
-
-          // showsUserLocation = {true}
-        >
-          {/*   <Marker
-            draggable
-            coordinate={region}
-            onDragStart={e=>{
-              setBottomSheetShow(false)
-            }}
-            onDragEnd={e => {
-              console.log('e', e.nativeEvent.coordinate);
-              setRegion({
-                latitude: e.nativeEvent.coordinate.latitude,
-                longitude: e.nativeEvent.coordinate.longitude,
-                latitudeDelta: 0.003,
-                longitudeDelta: 0.003,
-              });
-              onRegionChange(e.nativeEvent.coordinate);
-              setBottomSheetShow(true)
-            }}> */}
-          <Marker coordinate={region}>
-            <Image
-              style={{
-                height: 25,
-                width: 25,
-              }}
-              source={require('../../assets/images/select.png')} />
-          </Marker>
-
-          {/* <Marker coordinate={region}>
-              <Image
-                source={require('../../assets/images/select.png')}
-                style={{height: 20, width: 20, resizeMode: 'contain'}}
-              />
-            </Marker> */}
-        </MapView>
-        <View
-          style={{alignSelf: 'center', position: 'absolute', top: '15%'}}
-          pointerEvents="none">
+        />
+        <View style={styles.centerPinWrap} pointerEvents="none">
           <Image
-            style={{
-              height: 60,
-              width: 60,
-              // position: 'absolute',
-              alignSelf: 'center',
-            }}
-            source={require('../../assets/images/markerIcon.png')} />
+            style={styles.centerPinImage}
+            source={require('../../assets/images/markerIcon.png')}
+          />
         </View>
         <View
           style={{
@@ -891,6 +826,19 @@ const styles = StyleSheet.create({
     color: config.colors.Black,
     fontFamily: config.fonts.Poppins_Regular,
     fontSize: 12,
+  },
+  centerPinWrap: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    marginLeft: -30,
+    marginTop: -60,
+    zIndex: 2,
+  },
+  centerPinImage: {
+    height: 60,
+    width: 60,
+    resizeMode: 'contain',
   },
 });
 

@@ -1,8 +1,9 @@
 import { takeLatest, call, put } from 'redux-saga/effects';
 import { SagaActions } from './SagaActions';
 import { callApiService } from '../../services/ApiInstance';
-import { saveAddToCart, saveAddToCartResponse } from '../reducers/AddToCartReducer';
-import { UIReducer } from '../reducers';
+import {saveAddToCart, saveAddToCartResponse} from '../reducers/AddToCartReducer';
+import {saveGetMyCart} from '../reducers/GetMyCartReducer';
+import {UIReducer} from '../reducers';
 
 
 export function* AddToCart(action) {
@@ -16,7 +17,14 @@ export function* AddToCart(action) {
   console.log('AddToCart', data?.result?.data);
   if (data.isSucceded) {
     yield put(saveAddToCart(data?.result?.data));
-    // yield put(saveTokenAuth(data?.result?.data?.results?.token));
+
+    const cartData = yield call(callApiService, SagaActions.GET_MY_CART, {
+      promoCodeId: '',
+    });
+    if (cartData.isSucceded) {
+      yield put(saveGetMyCart(cartData?.result?.data));
+    }
+
     yield put(UIReducer.showLoader(false));
     return;
   }

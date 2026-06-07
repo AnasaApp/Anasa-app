@@ -1,73 +1,30 @@
-import React, {useEffect, useState} from 'react';
+import React, {useState} from 'react';
 import {
   StyleSheet,
   Text,
   View,
-  ImageBackground,
   Image,
   TouchableOpacity,
-  SafeAreaView,
-  I18nManager,
 } from 'react-native';
 import config from '../../config';
-import AppButton from '../../conponents/AppButton';
 import {useTranslation} from 'react-i18next';
-import {ChangeLanguageReducer} from '../../redux/reducers';
-import RNRestart from 'react-native-restart'; // Import package from node modules
-import {useDispatch, useSelector} from 'react-redux';
-import {SagaActions} from '../../redux/sagas/SagaActions';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import {applyLanguageAndRestart} from '../../utils/languageHelpers';
 
-const Language = ({navigation}) => {
-  const {t, i18n} = useTranslation();
-  const dispatch = useDispatch();
+const Language = () => {
+  const {t} = useTranslation();
 
-  const ChangeLanguageResponse = useSelector(
-    ChangeLanguageReducer.selectChangeLanguageData,
-  );
   const [selectLanguage, setSelectLanguage] = useState('');
 
-  const slider = () => {
-    navigation.navigate(config.routes.SLIDER);
-  };
-
-  useEffect(() => {
-    getUserLanguage();
-  }, []);
-  const getUserLanguage = async () => {
-    const lang = await AsyncStorage.getItem('user_language');
-    if (lang) {
-      setSelectLanguage(lang);
-    } else {
-      setSelectLanguage('');
-    }
-  };
-
   const changeLanguageApi = async lang => {
+    if (lang === selectLanguage) {
+      return;
+    }
     setSelectLanguage(lang);
-    await AsyncStorage.setItem('user_language', lang);
-
-    const language = lang == 'Arabic' ? 'ar' : 'en';
-
-    i18n
-      .changeLanguage(language)
-      .then(() => {
-        if (language == 'ar') {
-          I18nManager.forceRTL(true);
-          setTimeout(() => {
-            RNRestart.Restart();
-          }, 500);
-        } else {
-          I18nManager.forceRTL(false);
-          setTimeout(() => {
-            RNRestart.Restart();
-          }, 500);
-        }
-      })
-      .catch(err => {
-        console.log('something went wrong while applying RTL');
-      });
-    // dispatch({type: SagaActions.CHANGE_LANGUAGE, payload: {language: lang}});
+    try {
+      await applyLanguageAndRestart(lang);
+    } catch (error) {
+      console.log('Language change error:', error);
+    }
   };
 
   return (
@@ -78,62 +35,26 @@ const Language = ({navigation}) => {
           resizeMode="contain"
           source={require('../../assets/images/anasaLogo.png')}
         />
-        <Text
-          style={{
-            fontSize: 22,
-            textAlign: 'center',
-            lineHeight: 30,
-            marginTop: 20,
-            color: config.colors.Black,
-            fontFamily: config.fonts.Poppins_SemiBold,
-          }}>
-          {t('Welcome to Anasa')}
-        </Text>
-        <Text
-          style={{
-            fontSize: 14,
-            textAlign: 'center',
-            lineHeight: 22,
-            marginTop: 10,
-            color: config.colors.Black,
-            fontFamily: config.fonts.Poppins_Regular,
-          }}>
-          {t('Let’s plane your moment')}
+        <Text style={styles.welcomeTitle}>{t('Welcome to Anasa')}</Text>
+        <Text style={styles.welcomeSubtitle}>
+          {t("Let's plan your moment")}
         </Text>
       </View>
       <View style={styles.secondCss}>
-        <View style={styles.chooselanguageCss}>
-          <Text
-            style={{
-              fontSize: 16,
-              textAlign: 'center',
-              lineHeight: 26,
-              marginTop: 20,
-              color: config.colors.Black,
-              fontFamily: config.fonts.Poppins_Regular,
-            }}>
-            {t('Please select your preferred language')}
-          </Text>
-        </View>
+        <Text style={styles.chooseLanguageText}>
+          {t('Please select your preferred language')}
+        </Text>
         <View style={styles.flagMainCss}>
           <TouchableOpacity
             onPress={() => changeLanguageApi('English')}
-            style={{
-              width: '48%',
-              backgroundColor:
-                selectLanguage == 'English'
-                  ? config.colors.buttonColor
-                  : config.colors.BACKGROUNDCOLOR,
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'center',
-              height: 55,
-              borderRadius: 6,
-            }}>
+            style={[
+              styles.langButton,
+              selectLanguage === 'English' && styles.langButtonSelected,
+            ]}>
             <Text
               style={[
                 styles.languageText,
-                {color: selectLanguage == 'English' ? '#FFFFFF' : '#000000'},
+                selectLanguage === 'English' && styles.languageTextSelected,
               ]}>
               English
             </Text>
@@ -145,22 +66,14 @@ const Language = ({navigation}) => {
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => changeLanguageApi('Arabic')}
-            style={{
-              width: '48%',
-              backgroundColor:
-                selectLanguage == 'Arabic'
-                  ? config.colors.buttonColor
-                  : config.colors.BACKGROUNDCOLOR,
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'center',
-              height: 55,
-              borderRadius: 6,
-            }}>
+            style={[
+              styles.langButton,
+              selectLanguage === 'Arabic' && styles.langButtonSelected,
+            ]}>
             <Text
               style={[
                 styles.languageText,
-                {color: selectLanguage == 'Arabic' ? '#FFFFFF' : '#000000'},
+                selectLanguage === 'Arabic' && styles.languageTextSelected,
               ]}>
               Arabic
             </Text>
@@ -184,48 +97,62 @@ const styles = StyleSheet.create({
     backgroundColor: config.colors.BACKGROUNDCOLOR,
   },
   firstCss: {
-    flex: 0.6,
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 24,
   },
   anasaLogo: {
     height: 144,
     width: 144,
   },
+  welcomeTitle: {
+    fontSize: 22,
+    textAlign: 'center',
+    lineHeight: 30,
+    marginTop: 20,
+    color: config.colors.Black,
+    fontFamily: config.fonts.Poppins_SemiBold,
+  },
+  welcomeSubtitle: {
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginTop: 10,
+    color: config.colors.Black,
+    fontFamily: config.fonts.Poppins_Regular,
+  },
   secondCss: {
-    flex: 0.4,
     backgroundColor: config.colors.white,
     borderTopRightRadius: 40,
     borderTopLeftRadius: 40,
     paddingHorizontal: 20,
+    paddingTop: 28,
+    paddingBottom: 36,
   },
-  chooselanguageCss: {
-    paddingVertical: 10,
-  },
-  chooselanguageText: {
-    fontSize: 22,
+  chooseLanguageText: {
+    fontSize: 16,
     textAlign: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#70707033',
+    lineHeight: 26,
     color: config.colors.Black,
     fontFamily: config.fonts.Poppins_Regular,
   },
   flagMainCss: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-end',
-    flex: 1,
-    marginBottom: 50,
+    marginTop: 20,
   },
-  flagCss: {
-    marginTop: 30,
+  langButton: {
+    width: '48%',
+    backgroundColor: config.colors.BACKGROUNDCOLOR,
+    flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
-    borderRadius: 8,
-    width: 150,
-    height: 120,
     justifyContent: 'center',
+    height: 55,
+    borderRadius: 6,
+  },
+  langButtonSelected: {
+    backgroundColor: config.colors.buttonColor,
   },
   flag: {
     height: 24,
@@ -237,5 +164,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: config.fonts.Poppins_SemiBold,
     marginHorizontal: 10,
+    color: config.colors.Black,
+  },
+  languageTextSelected: {
+    color: config.colors.white,
   },
 });

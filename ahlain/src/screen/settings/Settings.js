@@ -2,7 +2,6 @@ import React, {useEffect, useState} from 'react';
 import {
   View,
   StyleSheet,
-  SafeAreaView,
   Image,
   ScrollView,
   Text,
@@ -15,72 +14,29 @@ import {useDispatch, useSelector} from 'react-redux';
 import config from '../../config';
 import AppHeader from '../../conponents/AppHeader';
 import {
-  ChangeLanguageReducer,
   ChangeNotificationReducer,
   MyProfileReducer,
 } from '../../redux/reducers';
 import {SagaActions} from '../../redux/sagas/SagaActions';
 import Toast from 'react-native-simple-toast';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {CommonActions} from '@react-navigation/native';
 import {useTranslation} from 'react-i18next';
-import RNRestart from 'react-native-restart'; // Import package from node modules
+import {applyLanguageAndRestart, getStoredLanguage} from '../../utils/languageHelpers';
 
 const Settings = ({navigation}) => {
-  const {t, i18n} = useTranslation();
+  const {t} = useTranslation();
   const dispatch = useDispatch();
   const ChangeNotificationResponse = useSelector(
     ChangeNotificationReducer.selectChangeNotificationData,
   );
-  const ChangeLanguageResponse = useSelector(
-    ChangeLanguageReducer.selectChangeLanguageData,
-  );
   const MyProfileResponse = useSelector(MyProfileReducer.selectMyProfileData);
-
-  console.log(
-    'ChangeNotificationResponse',
-    MyProfileResponse?.results?.buyer?.notification_status,
-  );
 
   const [isNotf, setisNotf] = useState(
     MyProfileResponse?.results?.buyer?.notification_status,
   );
-  const [select, setSelect] = useState(
-    MyProfileResponse?.results?.buyer?.userLanguage ?? 'English',
-  );
+  const [select, setSelect] = useState('English');
   const [userLoggedIn, setUserLoggedIn] = useState(false);
 
-  useEffect(() => {
-    if (ChangeLanguageResponse != null) {
-      if (ChangeLanguageResponse?.error == false) {
-        Toast.show(ChangeLanguageResponse.message, Toast.LONG);
-        AsyncStorage.setItem('user_language', select);
-
-        const language = select == 'Arabic' ? 'ar' : 'en';
-
-        i18n
-          .changeLanguage(language)
-          .then(() => {
-            if (language == 'ar') {
-              I18nManager.forceRTL(true);
-              setTimeout(() => {
-                RNRestart.Restart();
-              }, 500);
-            } else {
-              I18nManager.forceRTL(false);
-              setTimeout(() => {
-                RNRestart.Restart();
-              }, 500);
-            }
-          })
-          .catch(err => {
-            console.log('something went wrong while applying RTL');
-          });
-
-        dispatch(ChangeLanguageReducer.removeChangeLanguageResponse());
-      }
-    }
-  }, [ChangeLanguageResponse]);
   useEffect(() => {
     if (ChangeNotificationResponse != null) {
       if (ChangeNotificationResponse?.error == false) {
@@ -94,49 +50,52 @@ const Settings = ({navigation}) => {
   useEffect(() => {
     checkUserLoggedIn();
   }, []);
+
+  useEffect(() => {
+    const profileLang = MyProfileResponse?.results?.buyer?.userLanguage;
+    if (profileLang) {
+      setSelect(profileLang);
+    }
+  }, [MyProfileResponse?.results?.buyer?.userLanguage]);
+
   const changeNotificationApi = () => {
     setisNotf(!isNotf);
     dispatch({type: SagaActions.CHANGE_NOTIFICATION, payload: ''});
   };
-  const changeLanguageApi = val => {
+
+  const changeLanguageApi = async val => {
+    if (val === select) {
+      return;
+    }
+
+    setSelect(val);
+
     if (userLoggedIn) {
-      setSelect(val);
       dispatch({type: SagaActions.CHANGE_LANGUAGE, payload: {language: val}});
-    } else {
-      AsyncStorage.setItem('user_language', val);
-      const language = val == 'Arabic' ? 'ar' : 'en';
-      setSelect(val);
-      i18n
-        .changeLanguage(language)
-        .then(() => {
-          if (language == 'ar') {
-            I18nManager.forceRTL(true);
-            setTimeout(() => {
-              RNRestart.Restart();
-            }, 500);
-          } else {
-            I18nManager.forceRTL(false);
-            setTimeout(() => {
-              RNRestart.Restart();
-            }, 500);
-          }
-        })
-        .catch(err => {
-          console.log('something went wrong while applying RTL');
-        });
+    }
+
+    try {
+      await applyLanguageAndRestart(val);
+    } catch (error) {
+      console.log('Language change error:', error);
+      Toast.show(t('Something went wrong'), Toast.LONG);
     }
   };
+
   const checkUserLoggedIn = async () => {
     const res = await AsyncStorage.getItem(config.AsyncKeys.USER_LOGGED_IN);
     const result = JSON.parse(res);
+    const storedLang = await getStoredLanguage();
+
     if (result == true) {
       setUserLoggedIn(true);
-    } else {
-      const res = await AsyncStorage.getItem('user_language');
-      console.log('res', res);
-      setSelect(res);
     }
+
+    setSelect(
+      MyProfileResponse?.results?.buyer?.userLanguage || storedLang || 'English',
+    );
   };
+
   return (
     <View style={{flex: 1, backgroundColor: config.colors.BACKGROUNDCOLOR}}>
       <StatusBar
@@ -510,7 +469,6 @@ const styles = StyleSheet.create({
   mainCss: {
     marginHorizontal: 15,
     flex: 1,
-    // marginTop: 10,
   },
   iconCss: {
     height: 60,

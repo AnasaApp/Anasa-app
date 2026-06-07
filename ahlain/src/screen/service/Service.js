@@ -23,10 +23,12 @@ import RBSheet from 'react-native-raw-bottom-sheet';
 import {useDispatch, useSelector} from 'react-redux';
 import {
   AddToCartReducer,
+  CreatePartyServiceReducer,
   GetMyOccasionsReducer,
   GetServicesReducer,
   ServiceDetailReducer,
 } from '../../redux/reducers';
+import {getPartyDisplayName, getPartyTypeLabel} from '../../utils/partyHelpers';
 import {SagaActions} from '../../redux/sagas/SagaActions';
 import Toast from 'react-native-simple-toast';
 import AppIntroSlider from 'react-native-app-intro-slider';
@@ -34,36 +36,13 @@ import {useTranslation} from 'react-i18next';
 import {trackEvents} from '../../config/FCMEvents';
 import {check} from 'react-native-permissions';
 import {AppButton} from '../../conponents';
-import MapView, {Marker} from 'react-native-maps';
+import MapView, {Marker, PROVIDER_GOOGLE} from 'react-native-maps';
+import {buildMapRegion, isValidCoordinate} from '../../utils/mapHelpers';
 import {useIsFocused} from '@react-navigation/native';
 import Snackbar from 'react-native-snackbar';
 import {goToLogin} from '../../conponents/NavigationRef';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import SkeltonLoader from '../../conponents/SkeltonLoader';
-
-// Sample rows for the Add-to-Occasion sheet when the user has no occasions yet (debug builds only).
-const DUMMY_MY_OCCASIONS_FOR_MODAL = __DEV__
-  ? [
-      {
-        _id: '__dummy_occasion_birthday__',
-        name: 'Birthday Party',
-        date: moment().add(12, 'days').startOf('day').toISOString(),
-        _isDummy: true,
-      },
-      {
-        _id: '__dummy_occasion_office__',
-        name: 'Office Breakfast',
-        date: moment().add(3, 'days').startOf('day').toISOString(),
-        _isDummy: true,
-      },
-      {
-        _id: '__dummy_occasion_wedding__',
-        name: 'Wedding Brunch',
-        date: moment().add(45, 'days').startOf('day').toISOString(),
-        _isDummy: true,
-      },
-    ]
-  : [];
 
 const Service = ({navigation, route}) => {
   const {t, i18n} = useTranslation();
@@ -83,9 +62,16 @@ const Service = ({navigation, route}) => {
   const GetMyOccasionsResponse = useSelector(
     GetMyOccasionsReducer.selectGetMyOccasionsData,
   );
-  const {onSelectCustomization} = route?.params;
+  const CreatePartyServiceResponse = useSelector(
+    CreatePartyServiceReducer.selectCreatePartyServiceData,
+  );
+  const CreatePartyServiceError = useSelector(
+    CreatePartyServiceReducer.selectCreatePartyServiceResponse,
+  );
+  const {onSelectCustomization, partyId: routePartyId} = route?.params;
 
   const refRBSheet = useRef();
+  const lastSelectedPartyRef = useRef(null);
   const [selectedPackage, setSelectedPackage] = useState('');
   const [selectedImage, setSelectedImage] = useState([]);
   const [selectedPackageList, setSelectedPackageList] = useState([]);
@@ -94,9 +80,15 @@ const Service = ({navigation, route}) => {
   const [selectedServiceTab, setSelectedServiceTab] = useState('Details');
   const [showOccasionModal, setShowOccasionModal] = useState(false);
 
-  const apiOccasions = GetMyOccasionsResponse?.results?.occasions ?? [];
-  const occasionsForModal =
-    apiOccasions.length > 0 ? apiOccasions : DUMMY_MY_OCCASIONS_FOR_MODAL;
+  const partiesForModal = GetMyOccasionsResponse?.results?.parties ?? [];
+
+  const isCustomizationFlow = route?.params?.from === 'select_customization';
+  const serviceTabs = [
+    {id: 'Details', label: t('Details')},
+    {id: 'Reviews', label: t('Reviews')},
+    {id: 'Map', label: t('Map')},
+    {id: 'Recommended', label: t('Recommended')},
+  ];
 
   const [recommendedList, setRecommendedList] = useState([]);
 
@@ -111,6 +103,33 @@ const Service = ({navigation, route}) => {
       }
     }
   }, [GetServicesResponse]);
+  useEffect(() => {
+    if (CreatePartyServiceResponse != null) {
+      if (CreatePartyServiceResponse?.error === false) {
+        Toast.show(
+          CreatePartyServiceResponse?.message ?? t('Added to occasion'),
+          Toast.LONG,
+        );
+        const party = lastSelectedPartyRef.current;
+        dispatch(CreatePartyServiceReducer.removeCreatePartyServiceResponse());
+        setShowOccasionModal(false);
+        if (party?._id) {
+          navigation.navigate(config.routes.OCCASION_VIEW, {occasion: party});
+        }
+      }
+    }
+  }, [CreatePartyServiceResponse]);
+
+  useEffect(() => {
+    if (CreatePartyServiceError != null) {
+      Toast.show(
+        CreatePartyServiceError?.message ?? t('Something went wrong'),
+        Toast.LONG,
+      );
+      dispatch(CreatePartyServiceReducer.removeCreatePartyServiceResponse());
+    }
+  }, [CreatePartyServiceError]);
+
   useEffect(() => {
     if (AddToCartResponse != null) {
       if (AddToCartResponse?.error == false) {
@@ -299,28 +318,38 @@ const Service = ({navigation, route}) => {
         Toast.SHORT,
       );
     }
-    dispatch({type: SagaActions.GET_MY_OCCASIONS, payload: ''});
+    dispatch({
+      type: SagaActions.GET_MY_OCCASIONS,
+      payload: {page: 1, pageSize: 50},
+    });
     setShowOccasionModal(true);
   };
 
-  // Picked an occasion in the modal -> piggyback on ADD_TO_CART and attach
-  // the occasion fields so the backend can associate the service with it.
-  // Unknown fields are ignored server-side, so this is forward-compatible.
-  const onSelectOccasion = occasion => {
-    if (occasion?._isDummy) {
-      Toast.show(t('dummy_occasion_list_hint'), Toast.LONG);
-      return;
+  const onSelectOccasion = party => {
+    lastSelectedPartyRef.current = party;
+    const serviceId = ServiceDetailResponse?.results?.service?._id;
+    if (!serviceId) {
+      return Toast.show(t('Service not found'), Toast.SHORT);
     }
     const payload = {
-      serviceId: ServiceDetailResponse?.results?.service?._id,
-      packageId: selectedPackageList,
-      price: selectedPrice,
-      occasion_id: occasion?._id,
-      occasion_name: occasion?.name,
+      party: party?._id,
+      service: serviceId,
+      package: selectedPackageList || [],
+      quantity: 1,
+      price: Number(selectedPrice) || 0,
+      deliveryType: 'PickUp',
     };
     trackEvents('add_to_occasion', payload);
     setShowOccasionModal(false);
-    dispatch({type: SagaActions.ADD_TO_CART, payload});
+    dispatch({type: SagaActions.CREATE_PARTY_SERVICE, payload});
+  };
+
+  const onAddToPartyDirect = () => {
+    if (routePartyId) {
+      onSelectOccasion({_id: routePartyId});
+      return;
+    }
+    onPressAddToOccasion();
   };
 
   const getReviewStarRatingView = rating => {
@@ -370,6 +399,26 @@ const Service = ({navigation, route}) => {
       console.log('Sharing Error:', error);
     }
   };
+  const isSameCustomizationOption = (a, b) => {
+    if (a == null || b == null) {
+      return false;
+    }
+    if (a === b) {
+      return true;
+    }
+    const aId = a?._id ?? a?.id;
+    const bId = b?._id ?? b?.id;
+    return aId != null && bId != null && String(aId) === String(bId);
+  };
+
+  const isOptionSelected = (groupId, option) => {
+    const group = selectedPackageList.find(item => item?._id === groupId);
+    if (!group?.options?.length) {
+      return false;
+    }
+    return group.options.some(o => isSameCustomizationOption(o, option));
+  };
+
   const setCustomizedItem = (customizeItem, option) => {
     var tempArray = [...selectedPackageList];
 
@@ -378,72 +427,69 @@ const Service = ({navigation, route}) => {
     );
 
     if (newIndex !== -1) {
-      var newSubIndex = tempArray[newIndex].options?.findIndex(
-        item => item === option,
+      var newSubIndex = tempArray[newIndex].options?.findIndex(item =>
+        isSameCustomizationOption(item, option),
       );
 
       if (newSubIndex !== -1) {
         tempArray[newIndex].options = [...tempArray[newIndex].options];
-
-        tempArray[newIndex].options.splice(newSubIndex, 1);
+        const removed = tempArray[newIndex].options.splice(newSubIndex, 1)[0];
         if (tempArray[newIndex].options?.length == 0) {
           tempArray.splice(newIndex, 1);
         }
-        setSelectedPrice(prevState => prevState - option?.price);
+        setSelectedPrice(prevState => prevState - (Number(removed?.price) || 0));
       } else {
-        if (customizeItem?.option_select_count > 0) {
-          if (
-            tempArray[newIndex].options?.length + 1 >
-            customizeItem?.option_select_count
-          ) {
+        const maxCount = Number(customizeItem?.option_select_count) || 0;
+        if (maxCount === 1 && tempArray[newIndex].options?.length === 1) {
+          const previous = tempArray[newIndex].options[0];
+          setSelectedPrice(
+            prevState =>
+              prevState -
+              (Number(previous?.price) || 0) +
+              (Number(option?.price) || 0),
+          );
+          tempArray[newIndex].options = [option];
+        } else if (maxCount > 0) {
+          if (tempArray[newIndex].options?.length + 1 > maxCount) {
             return Toast.show(
-              `${t('You can select only')} ${
-                customizeItem?.option_select_count
-              } ${t('options')}`,
+              `${t('You can select only')} ${maxCount} ${t('options')}`,
               Toast.SHORT,
             );
           }
-          tempArray[newIndex].options = [...tempArray[newIndex].options];
-
-          tempArray[newIndex].options.push(option);
-
-          setSelectedPrice(prevState => prevState + option?.price);
+          tempArray[newIndex].options = [...tempArray[newIndex].options, option];
+          setSelectedPrice(
+            prevState => prevState + (Number(option?.price) || 0),
+          );
         } else {
-          tempArray[newIndex].options = [...tempArray[newIndex].options];
-
-          tempArray[newIndex].options.push(option);
-
-          setSelectedPrice(prevState => prevState + option?.price);
+          if (customizeItem?.is_required) {
+            const previous = tempArray[newIndex].options?.[0];
+            setSelectedPrice(
+              prevState =>
+                prevState -
+                (Number(previous?.price) || 0) +
+                (Number(option?.price) || 0),
+            );
+            tempArray[newIndex].options = [option];
+          } else {
+            tempArray[newIndex].options = [...tempArray[newIndex].options, option];
+            setSelectedPrice(
+              prevState => prevState + (Number(option?.price) || 0),
+            );
+          }
         }
       }
     } else {
       let temp = {...customizeItem};
       temp.options = [option];
       tempArray.push(temp);
-      setSelectedPrice(prevState => prevState + option?.price);
+      setSelectedPrice(prevState => prevState + (Number(option?.price) || 0));
     }
 
-    console.log('tempArray', JSON.stringify(tempArray));
     setSelectedPackageList(tempArray);
   };
-  const getCustomizedItem = (customize_id, option) => {
-    var newIndex = selectedPackageList?.findIndex(
-      item => item?._id === customize_id,
-    );
-    let check = false;
-    if (newIndex !== -1) {
-      var newSubIndex = selectedPackageList[newIndex].options?.findIndex(
-        item => item === option,
-      );
-      if (newSubIndex !== -1) {
-        check = true;
-      }
-    } else {
-      check = false;
-    }
 
-    return check;
-  };
+  const getCustomizedItem = (customize_id, option) =>
+    isOptionSelected(customize_id, option);
 
   const openGoogleMap = (name, lat, lng) => {
     const scheme = Platform.select({
@@ -551,11 +597,12 @@ const Service = ({navigation, route}) => {
             />
           </TouchableOpacity>
 
-          <View style={styles.Css}>
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <View style={styles.ballonCss}>
-                <Text style={styles.ballonText}>{selectedName}</Text>
-              </View>
+          <View style={styles.detailPanel}>
+            <ScrollView
+              style={styles.detailScroll}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.detailScrollContent}>
+              <Text style={styles.serviceTitle}>{selectedName}</Text>
               <TouchableOpacity
                 activeOpacity={0.8}
                 onPress={() => {
@@ -566,37 +613,16 @@ const Service = ({navigation, route}) => {
                     });
                   }
                 }}
-                style={{
-                  backgroundColor: config.colors.orangeColor + 80,
-                  paddingHorizontal: 8,
-                  paddingVertical: 4,
-                  borderRadius: 50,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  alignSelf: 'flex-start',
-                  marginBottom: 5,
-                }}>
+                style={styles.vendorChip}>
                 <Image
-                  style={{
-                    width: 24,
-                    height: 24,
-                    resizeMode: 'cover',
-                    borderRadius: 20,
-                  }}
+                  style={styles.vendorChipImage}
                   resizeMode="cover"
                   source={{
                     uri: ServiceDetailResponse?.results?.service?.vendor
                       ?.shop_cover_image,
                   }}
                 />
-
-                <Text
-                  style={{
-                    fontFamily: config.fonts.Poppins_Medium,
-                    fontSize: 12,
-                    color: config.colors.white,
-                    marginHorizontal: 4,
-                  }}>
+                <Text style={styles.vendorChipText}>
                   {I18nManager?.isRTL
                     ? ServiceDetailResponse?.results?.service?.vendor
                         ?.shop_name_ar
@@ -605,314 +631,161 @@ const Service = ({navigation, route}) => {
                 </Text>
               </TouchableOpacity>
               {ServiceDetailResponse?.results?.service?.rating > 0 && (
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    columnGap: 2,
-                  }}>
+                <View style={styles.ratingRow}>
                   {getReviewStarRatingView(
                     ServiceDetailResponse?.results?.service?.rating,
                   )}
-                  <Text
-                    style={{
-                      fontFamily: config.fonts.Poppins_Regular,
-                      fontSize: 14,
-                      color: config.colors.blueColor,
-                    }}>{`( ${
+                  <Text style={styles.ratingText}>{`( ${
                     ServiceDetailResponse?.results?.service?.rating
                   } ${t('Reviews')} )`}</Text>
                 </View>
               )}
-              <Text
-                style={{
-                  fontFamily: config.fonts.Poppins_SemiBold,
-                  fontSize: 20,
-                  color: config.colors.orangeColor,
-                  textAlign: 'left',
-                }}>{`${ServiceDetailResponse?.results?.service?.price} SAR`}</Text>
-              <ScrollView
-                style={{alignSelf: 'flex-start'}}
-                horizontal
-                showsHorizontalScrollIndicator={false}>
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                  }}>
-                  <TouchableOpacity
-                    activeOpacity={0.8}
-                    onPress={() => {
-                      setSelectedServiceTab('Details');
-                    }}
-                    style={{
-                      borderBottomWidth:
-                        selectedServiceTab == 'Details' ? 2 : 0,
-                      borderBottomColor: config.colors.blueColor,
-                      borderEndRadius: 4,
-                    }}>
-                    <Text
-                      style={{
-                        fontFamily: config.fonts.Poppins_Regular,
-                        fontSize: 14,
-                        color:
-                          selectedServiceTab == 'Details'
-                            ? config.colors.Black
-                            : config.colors.Gray,
-                      }}>
-                      {t('Details')}
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    activeOpacity={0.8}
-                    onPress={() => {
-                      setSelectedServiceTab('Reviews');
-                    }}
-                    style={{
-                      borderBottomWidth:
-                        selectedServiceTab == 'Reviews' ? 2 : 0,
-                      borderBottomColor: config.colors.blueColor,
-                      borderEndRadius: 4,
-                      marginLeft: config.constants.Width / 10,
-                    }}>
-                    <Text
-                      style={{
-                        fontFamily: config.fonts.Poppins_Regular,
-                        fontSize: 14,
-                        color:
-                          selectedServiceTab == 'Reviews'
-                            ? config.colors.Black
-                            : config.colors.Gray,
-                      }}>
-                      {t('Reviews')}
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    activeOpacity={0.8}
-                    onPress={() => {
-                      setSelectedServiceTab('Map');
-                    }}
-                    style={{
-                      borderBottomWidth: selectedServiceTab == 'Map' ? 2 : 0,
-                      borderBottomColor: config.colors.blueColor,
-                      borderEndRadius: 4,
-                      marginLeft: config.constants.Width / 10,
-                    }}>
-                    <Text
-                      style={{
-                        fontFamily: config.fonts.Poppins_Regular,
-                        fontSize: 14,
-                        color:
-                          selectedServiceTab == 'Map'
-                            ? config.colors.Black
-                            : config.colors.Gray,
-                      }}>
-                      {t('Map')}
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    activeOpacity={0.8}
-                    onPress={() => {
-                      setSelectedServiceTab('Recommended');
-                      callGetServicesApi(
-                        1,
-                        ServiceDetailResponse?.results?.service?.category?._id,
-                        ServiceDetailResponse?.results?.service?.subCategory
-                          ?._id,
-                      );
-                    }}
-                    style={{
-                      borderBottomWidth:
-                        selectedServiceTab == 'Recommended' ? 2 : 0,
-                      borderBottomColor: config.colors.blueColor,
-                      borderEndRadius: 4,
-                      marginLeft: config.constants.Width / 10,
-                    }}>
-                    <Text
-                      style={{
-                        fontFamily: config.fonts.Poppins_Regular,
-                        fontSize: 14,
-                        color:
-                          selectedServiceTab == 'Recommended'
-                            ? config.colors.Black
-                            : config.colors.Gray,
-                      }}>
-                      {t('Recommended')}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </ScrollView>
-              {selectedServiceTab == 'Details' && (
+              <Text style={styles.servicePrice}>{`${selectedPrice} ${t('SAR')}`}</Text>
+
+              {isCustomizationFlow ? (
+                <Text style={styles.customizationHint}>
+                  {t('Select your customization options below')}
+                </Text>
+              ) : (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.tabRow}>
+                  {serviceTabs.map(tab => (
+                    <TouchableOpacity
+                      key={tab.id}
+                      activeOpacity={0.8}
+                      onPress={() => {
+                        setSelectedServiceTab(tab.id);
+                        if (tab.id === 'Recommended') {
+                          callGetServicesApi(
+                            1,
+                            ServiceDetailResponse?.results?.service?.category
+                              ?._id,
+                            ServiceDetailResponse?.results?.service?.subCategory
+                              ?._id,
+                          );
+                        }
+                      }}
+                      style={[
+                        styles.tabItem,
+                        selectedServiceTab === tab.id && styles.tabItemActive,
+                      ]}>
+                      <Text
+                        style={[
+                          styles.tabText,
+                          selectedServiceTab === tab.id && styles.tabTextActive,
+                        ]}>
+                        {tab.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              )}
+
+              {(isCustomizationFlow || selectedServiceTab == 'Details') && (
                 <View>
                   <Text style={styles.lorenText}>
                     {I18nManager.isRTL
                       ? ServiceDetailResponse?.results?.service?.description_ar
                       : ServiceDetailResponse?.results?.service?.description_en}
                   </Text>
-                  <View
-                    style={{
-                      flexDirection: 'row',
-
-                      paddingVertical: 10,
-                    }}>
-                    <View
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                      }}>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.metaRow}>
+                    <View style={styles.metaItem}>
                       <Image
                         source={require('../../assets/images/timeIcon.png')}
-                        style={{
-                          width: 20,
-                          height: 20,
-                          tintColor: config.colors.Gray,
-                        }}
+                        style={styles.metaIcon}
                       />
-                      <Text
-                        style={{
-                          fontFamily: config.fonts.Poppins_Regular,
-                          fontSize: 12,
-                          color: config.colors.Black,
-                          lineHeight: 18,
-                          marginLeft: 10,
-                        }}>
+                      <Text style={styles.metaText}>
                         {`${ServiceDetailResponse?.results?.service?.vendor?.shop_open_time} - ${ServiceDetailResponse?.results?.service?.vendor?.shop_close_time}`}
                       </Text>
                     </View>
-                    <View
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        marginLeft: 20,
-                      }}>
+                    <View style={styles.metaItem}>
                       <Image
                         source={require('../../assets/images/deliveryIcon.png')}
-                        style={{
-                          width: 20,
-                          height: 20,
-                          tintColor: config.colors.Gray,
-                        }}
+                        style={styles.metaIcon}
                       />
-                      <Text
-                        style={{
-                          fontFamily: config.fonts.Poppins_Regular,
-                          fontSize: 12,
-                          color: config.colors.Black,
-                          lineHeight: 18,
-                          marginLeft: 10,
-                        }}>
-                        {`${
-                          ServiceDetailResponse?.results?.service
-                            ?.preparationTime
-                        } ${t('hour')}`}
+                      <Text style={styles.metaText}>
+                        {`${ServiceDetailResponse?.results?.service?.preparationTime} ${t('hour')}`}
                       </Text>
                     </View>
-                    <View
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        marginLeft: 20,
-                      }}>
+                    <View style={styles.metaItem}>
                       <Image
                         source={require('../../assets/images/shippingIcon.png')}
-                        style={{
-                          width: 20,
-                          height: 20,
-                          tintColor: config.colors.Gray,
-                        }}
+                        style={styles.metaIcon}
                       />
-                      <Text
-                        style={{
-                          fontFamily: config.fonts.Poppins_Regular,
-                          fontSize: 12,
-                          color: config.colors.Black,
-                          lineHeight: 18,
-                          marginLeft: 10,
-                        }}>
-                        {`${
-                          ServiceDetailResponse?.results?.service?.vendor
-                            ?.refundTime
-                        } ${t('hour')}`}
+                      <Text style={styles.metaText}>
+                        {`${ServiceDetailResponse?.results?.service?.vendor?.refundTime} ${t('hour')}`}
                       </Text>
                     </View>
-                  </View>
+                  </ScrollView>
                   {ServiceDetailResponse?.results?.service?.packages?.length >
                     0 && (
-                    <View style={{marginVertical: 10}}>
+                    <View style={styles.customizationSection}>
                       {ServiceDetailResponse?.results?.service?.packages?.map(
-                        (item, index) => {
-                          return (
-                            <View style={{}} key={index}>
-                              <Text
-                                style={{
-                                  fontSize: 16,
-                                  color: config.colors.Black,
-                                  fontFamily: config.fonts.Poppins_Medium,
-                                  textAlign: 'left',
-                                }}>
-                                {`${t('Choose')} `}
-                                {I18nManager.isRTL
-                                  ? item?.customized_option_title_ar
-                                  : item?.customized_option_title_en}
-                              </Text>
-                              <View
-                                style={{
-                                  flexDirection: 'row',
-                                  flexWrap: 'wrap',
-                                }}>
-                                {item?.options?.map((oItem, oIndex) => {
-                                  return (
-                                    <TouchableOpacity
-                                      key={oIndex}
-                                      style={{
-                                        borderWidth: 1,
-                                        borderColor: getCustomizedItem(
-                                          item?._id,
-                                          oItem,
-                                        )
-                                          ? config.colors.buttonColor
-                                          : config.colors.Gray,
-                                        borderRadius: 10,
-                                        paddingVertical: 8,
-                                        paddingHorizontal: 12,
-                                        width: '40%',
-                                        margin: 5,
-                                      }}
-                                      activeOpacity={0.5}
-                                      onPress={() => {
-                                        const {options, ...newData} = item;
-                                        setCustomizedItem(newData, oItem);
-                                      }}>
-                                      <Text
-                                        style={{
-                                          fontSize: 13,
-                                          color: config.colors.Black,
-                                          fontFamily:
-                                            config.fonts.Poppins_Regular,
-                                          textAlign: 'left',
-                                        }}>
-                                        {I18nManager.isRTL
-                                          ? oItem?.option_ar
-                                          : oItem?.option_en}
-                                      </Text>
-                                      {oItem?.price > 0 && (
-                                        <Text
-                                          style={{
-                                            fontSize: 10,
-                                            color: config.colors.Gray,
-                                            fontFamily:
-                                              config.fonts.Poppins_Medium,
-                                            textAlign: 'left',
-                                          }}>
-                                          {`${oItem?.price} SAR`}
+                        (item, index) => (
+                          <View style={styles.customizationGroup} key={index}>
+                            <Text style={styles.customizationGroupTitle}>
+                              {`${t('Choose')} `}
+                              {I18nManager.isRTL
+                                ? item?.customized_option_title_ar
+                                : item?.customized_option_title_en}
+                            </Text>
+                            <View style={styles.optionGrid}>
+                              {item?.options?.map((oItem, oIndex) => {
+                                const isSelected = isOptionSelected(
+                                  item?._id,
+                                  oItem,
+                                );
+                                return (
+                                  <TouchableOpacity
+                                    key={oIndex}
+                                    style={[
+                                      styles.optionCard,
+                                      isSelected && styles.optionCardSelected,
+                                    ]}
+                                    activeOpacity={0.7}
+                                    onPress={() => {
+                                      const {options, ...newData} = item;
+                                      setCustomizedItem(newData, oItem);
+                                    }}>
+                                    {isSelected ? (
+                                      <View style={styles.optionSelectedBadge}>
+                                        <Text style={styles.optionSelectedCheck}>
+                                          ✓
                                         </Text>
-                                      )}
-                                    </TouchableOpacity>
-                                  );
-                                })}
-                              </View>
+                                      </View>
+                                    ) : null}
+                                    <Text
+                                      style={[
+                                        styles.optionCardTitle,
+                                        isSelected &&
+                                          styles.optionCardTitleSelected,
+                                      ]}
+                                      numberOfLines={2}>
+                                      {I18nManager.isRTL
+                                        ? oItem?.option_ar
+                                        : oItem?.option_en}
+                                    </Text>
+                                    {oItem?.price > 0 && (
+                                      <Text
+                                        style={[
+                                          styles.optionCardPrice,
+                                          isSelected &&
+                                            styles.optionCardPriceSelected,
+                                        ]}>
+                                        {`${oItem?.price} ${t('SAR')}`}
+                                      </Text>
+                                    )}
+                                  </TouchableOpacity>
+                                );
+                              })}
                             </View>
-                          );
-                        },
+                          </View>
+                        ),
                       )}
                     </View>
                   )}
@@ -924,66 +797,62 @@ const Service = ({navigation, route}) => {
                 </View>
               )}
               {selectedServiceTab == 'Map' && (
-                <View style={{marginTop: 15, borderRadius: 20}}>
-                  <MapView
-                    style={styles.map}
-                    initialRegion={{
-                      latitude: parseFloat(
+                <View style={{marginTop: 15, borderRadius: 20, overflow: 'hidden'}}>
+                  {isValidCoordinate(
+                    ServiceDetailResponse?.results?.service?.vendor?.latitude,
+                    ServiceDetailResponse?.results?.service?.vendor?.longitude,
+                  ) ? (
+                    <MapView
+                      provider={
+                        Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined
+                      }
+                      style={styles.map}
+                      initialRegion={buildMapRegion(
                         ServiceDetailResponse?.results?.service?.vendor
-                          ?.latitude ?? 0,
-                      ),
-                      longitude: parseFloat(
+                          ?.latitude,
                         ServiceDetailResponse?.results?.service?.vendor
-                          ?.longitude ?? 0,
-                      ),
-                      latitudeDelta: 0.003,
-                      longitudeDelta: 0.003,
-                    }}
-                    pitchEnabled={false}
-                    scrollEnabled={false}
-
-                    // minZoomLevel={10}
-                    // onRegionChange={onAnnotationPress()}
-                    // provider={PROVIDER_GOOGLE}
-
-                    // zoomEnabled={true}
-                    // mapType={'satellite'}
-
-                    // showsUserLocation = {true}
-                  >
-                    <Marker
-                      onPress={() => {
-                        openGoogleMap(
-                          I18nManager?.isRTL
-                            ? ServiceDetailResponse?.results?.service?.vendor
-                                ?.shop_name_ar
-                            : ServiceDetailResponse?.results?.service?.vendor
-                                ?.shop_name,
-                          ServiceDetailResponse?.results?.service?.vendor
-                            ?.latitude,
-                          ServiceDetailResponse?.results?.service?.vendor
-                            ?.longitude,
-                        );
-                      }}
-                      coordinate={{
-                        latitude: parseFloat(
-                          ServiceDetailResponse?.results?.service?.vendor
-                            ?.latitude ?? 0,
-                        ),
-                        longitude: parseFloat(
-                          ServiceDetailResponse?.results?.service?.vendor
-                            ?.longitude ?? 0,
-                        ),
-                      }}>
-                      <Image
-                        style={{
-                          height: 24,
-                          width: 24,
+                          ?.longitude,
+                      )}
+                      pitchEnabled={false}
+                      scrollEnabled={false}>
+                      <Marker
+                        onPress={() => {
+                          openGoogleMap(
+                            I18nManager?.isRTL
+                              ? ServiceDetailResponse?.results?.service?.vendor
+                                  ?.shop_name_ar
+                              : ServiceDetailResponse?.results?.service?.vendor
+                                  ?.shop_name,
+                            ServiceDetailResponse?.results?.service?.vendor
+                              ?.latitude,
+                            ServiceDetailResponse?.results?.service?.vendor
+                              ?.longitude,
+                          );
                         }}
-                        source={require('../../assets/images/markerIcon.png')}
-                      />
-                    </Marker>
-                  </MapView>
+                        coordinate={{
+                          latitude: Number(
+                            ServiceDetailResponse?.results?.service?.vendor
+                              ?.latitude,
+                          ),
+                          longitude: Number(
+                            ServiceDetailResponse?.results?.service?.vendor
+                              ?.longitude,
+                          ),
+                        }}>
+                        <Image
+                          style={{
+                            height: 24,
+                            width: 24,
+                          }}
+                          source={require('../../assets/images/markerIcon.png')}
+                        />
+                      </Marker>
+                    </MapView>
+                  ) : (
+                    <Text style={styles.lorenText}>
+                      {t('Location not available')}
+                    </Text>
+                  )}
                 </View>
               )}
               {selectedServiceTab == 'Recommended' && (
@@ -1121,32 +990,35 @@ const Service = ({navigation, route}) => {
                 </View>
               )}
             </ScrollView>
-            {route?.params?.from != 'banner' &&
-              (route?.params?.from == 'select_customization' ? (
-                <AppButton
-                  text={t('Process')}
-                  onPress={() => onPressAddToCart()}
-                  buttonStyle={{marginVertical: 20, marginHorizontal: 0}}
-                />
-              ) : (
-                <View style={styles.bottomActionRow}>
-                  <TouchableOpacity
-                    activeOpacity={0.8}
-                    style={styles.addToOccasionBtn}
-                    onPress={onPressAddToOccasion}>
-                    <Text style={styles.addToOccasionText}>
-                      {t('Add to Occasion')}
-                    </Text>
-                  </TouchableOpacity>
+            {route?.params?.from != 'banner' && (
+              <View style={styles.detailFooter}>
+                {isCustomizationFlow ? (
                   <AppButton
-                    text={t('Add to Cart')}
-                    onPress={() => {
-                      onPressAddToCart();
-                    }}
-                    buttonStyle={styles.addToCartBtn}
+                    text={t('Confirm Selection')}
+                    onPress={() => onPressAddToCart()}
+                    buttonStyle={styles.confirmSelectionBtn}
                   />
-                </View>
-              ))}
+                ) : (
+                  <View style={styles.bottomActionRow}>
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      style={styles.addToOccasionBtn}
+                      onPress={onAddToPartyDirect}>
+                      <Text style={styles.addToOccasionText}>
+                        {t('Add to Occasion')}
+                      </Text>
+                    </TouchableOpacity>
+                    <AppButton
+                      text={t('Add to Cart')}
+                      onPress={() => {
+                        onPressAddToCart();
+                      }}
+                      buttonStyle={styles.addToCartBtn}
+                    />
+                  </View>
+                )}
+              </View>
+            )}
           </View>
         </>
       ) : (
@@ -1175,9 +1047,9 @@ const Service = ({navigation, route}) => {
               {t('Choose an occasion to add this service to')}
             </Text>
 
-            {occasionsForModal.length > 0 ? (
+            {partiesForModal.length > 0 ? (
               <FlatList
-                data={occasionsForModal}
+                data={partiesForModal}
                 keyExtractor={(item, idx) => (item?._id ?? idx).toString()}
                 style={{maxHeight: 360}}
                 showsVerticalScrollIndicator={false}
@@ -1187,9 +1059,8 @@ const Service = ({navigation, route}) => {
                     config.colors.buttonColor,
                     config.colors.yellowColor,
                   ];
-                  const daysLeft = item?.date
-                    ? moment(item.date).diff(moment(), 'days')
-                    : null;
+                  const displayName = getPartyDisplayName(item);
+                  const typeLabel = getPartyTypeLabel(item?.type);
                   return (
                     <TouchableOpacity
                       activeOpacity={0.85}
@@ -1206,15 +1077,10 @@ const Service = ({navigation, route}) => {
                       </View>
                       <View style={{flex: 1}}>
                         <Text style={styles.occasionRowName} numberOfLines={1}>
-                          {item?.name}
+                          {displayName}
                         </Text>
                         <Text style={styles.occasionRowDate}>
-                          {item?.date
-                            ? moment(item.date).format('DD MMM YYYY')
-                            : ''}
-                          {daysLeft !== null && daysLeft >= 0
-                            ? `  •  ${daysLeft} ${t('days')}`
-                            : ''}
+                          {typeLabel}
                         </Text>
                       </View>
                       <Text style={styles.occasionRowArrow}>›</Text>
@@ -1263,7 +1129,6 @@ const styles = StyleSheet.create({
   bottomActionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: 20,
     marginHorizontal: 0,
   },
   addToOccasionBtn: {
@@ -1315,12 +1180,14 @@ const styles = StyleSheet.create({
     fontFamily: config.fonts.Poppins_SemiBold,
     fontSize: 18,
     color: config.colors.Black,
+    textAlign: 'center',
     marginBottom: 4,
   },
   occasionSheetSubtitle: {
     fontFamily: config.fonts.Poppins_Regular,
     fontSize: 13,
     color: config.colors.Gray,
+    textAlign: 'center',
     marginBottom: 16,
     lineHeight: 20,
   },
@@ -1457,6 +1324,215 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     // backgroundColor:'pink'
   },
+  detailPanel: {
+    flex: 1,
+    marginTop: -30,
+    backgroundColor: config.colors.BACKGROUNDCOLOR,
+    borderTopRightRadius: 30,
+    borderTopLeftRadius: 30,
+    paddingHorizontal: 20,
+  },
+  detailScroll: {
+    flex: 1,
+  },
+  detailScrollContent: {
+    paddingBottom: 16,
+  },
+  detailFooter: {
+    paddingTop: 10,
+    paddingBottom: Platform.OS === 'ios' ? 24 : 14,
+    borderTopWidth: 1,
+    borderTopColor: config.colors.borderColor,
+    backgroundColor: config.colors.BACKGROUNDCOLOR,
+  },
+  serviceTitle: {
+    fontSize: 22,
+    color: config.colors.Black,
+    fontFamily: config.fonts.Poppins_SemiBold,
+    lineHeight: 30,
+    marginTop: 20,
+    textAlign: I18nManager.isRTL ? 'right' : 'left',
+  },
+  vendorChip: {
+    backgroundColor: config.colors.orangeColor + 'CC',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 50,
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    marginTop: 8,
+    marginBottom: 6,
+  },
+  vendorChipImage: {
+    width: 24,
+    height: 24,
+    borderRadius: 20,
+  },
+  vendorChipText: {
+    fontFamily: config.fonts.Poppins_Medium,
+    fontSize: 12,
+    color: config.colors.white,
+    marginHorizontal: 6,
+  },
+  ratingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    columnGap: 2,
+    marginTop: 4,
+  },
+  ratingText: {
+    fontFamily: config.fonts.Poppins_Regular,
+    fontSize: 14,
+    color: config.colors.blueColor,
+  },
+  servicePrice: {
+    fontFamily: config.fonts.Poppins_SemiBold,
+    fontSize: 20,
+    color: config.colors.orangeColor,
+    marginTop: 8,
+    marginBottom: 4,
+    textAlign: I18nManager.isRTL ? 'right' : 'left',
+  },
+  customizationHint: {
+    fontFamily: config.fonts.Poppins_Regular,
+    fontSize: 13,
+    color: config.colors.Gray,
+    lineHeight: 20,
+    marginTop: 8,
+    marginBottom: 4,
+    textAlign: I18nManager.isRTL ? 'right' : 'left',
+  },
+  tabRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    gap: 20,
+  },
+  tabItem: {
+    paddingBottom: 8,
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  tabItemActive: {
+    borderBottomColor: config.colors.blueColor,
+  },
+  tabText: {
+    fontFamily: config.fonts.Poppins_Regular,
+    fontSize: 14,
+    color: config.colors.Gray,
+  },
+  tabTextActive: {
+    color: config.colors.Black,
+    fontFamily: config.fonts.Poppins_Medium,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    gap: 16,
+    paddingRight: 8,
+  },
+  metaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    maxWidth: 220,
+  },
+  metaIcon: {
+    width: 18,
+    height: 18,
+    tintColor: config.colors.Gray,
+  },
+  metaText: {
+    fontFamily: config.fonts.Poppins_Regular,
+    fontSize: 12,
+    color: config.colors.Black,
+    lineHeight: 18,
+    marginLeft: 8,
+    flexShrink: 1,
+  },
+  customizationSection: {
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  customizationGroup: {
+    marginBottom: 16,
+  },
+  customizationGroupTitle: {
+    fontSize: 16,
+    color: config.colors.Black,
+    fontFamily: config.fonts.Poppins_SemiBold,
+    marginBottom: 10,
+    textAlign: I18nManager.isRTL ? 'right' : 'left',
+  },
+  optionGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginHorizontal: -4,
+  },
+  optionCard: {
+    width: '48%',
+    minHeight: 72,
+    marginHorizontal: '1%',
+    marginBottom: 10,
+    borderWidth: 1.5,
+    borderColor: config.colors.borderColor,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: config.colors.white,
+    position: 'relative',
+  },
+  optionCardSelected: {
+    borderWidth: 2,
+    borderColor: config.colors.orangeColor,
+    backgroundColor: config.colors.creamColor,
+  },
+  optionSelectedBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: config.colors.orangeColor,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  optionSelectedCheck: {
+    color: config.colors.white,
+    fontSize: 12,
+    fontFamily: config.fonts.Poppins_Bold,
+    lineHeight: 14,
+  },
+  optionCardTitle: {
+    fontSize: 13,
+    color: config.colors.Black,
+    fontFamily: config.fonts.Poppins_Medium,
+    textAlign: 'center',
+    lineHeight: 18,
+    paddingHorizontal: 4,
+  },
+  optionCardTitleSelected: {
+    color: config.colors.orangeColor,
+    fontFamily: config.fonts.Poppins_SemiBold,
+  },
+  optionCardPrice: {
+    fontSize: 11,
+    color: config.colors.Gray,
+    fontFamily: config.fonts.Poppins_Medium,
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  optionCardPriceSelected: {
+    color: config.colors.orangeColor,
+  },
+  confirmSelectionBtn: {
+    marginHorizontal: 0,
+    marginVertical: 0,
+  },
   ballonCss: {
     marginTop: 20,
     flexDirection: 'row',
@@ -1489,11 +1565,10 @@ const styles = StyleSheet.create({
   lorenText: {
     fontFamily: config.fonts.Poppins_Regular,
     color: config.colors.Black,
-    fontSize: 12,
+    fontSize: 13,
     marginTop: 10,
-    textAlign: 'left',
-
-    // lineHeight:19
+    lineHeight: 20,
+    textAlign: I18nManager.isRTL ? 'right' : 'left',
   },
   plusIcon: {
     width: 18,
@@ -1582,6 +1657,7 @@ const styles = StyleSheet.create({
     padding: 15,
   },
   map: {
+    width: '100%',
     height: 200,
     borderRadius: 20,
   },

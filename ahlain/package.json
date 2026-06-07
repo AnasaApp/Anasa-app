@@ -7,6 +7,9 @@
     "ios": "npx @react-native-community/cli run-ios",
     "lint": "eslint .",
     "start": "npx @react-native-community/cli start",
+    "log:api": "adb logcat -c && adb logcat ReactNativeJS:V *:S",
+    "android:release": "cd android && gradlew.bat assembleRelease",
+    "android:bundle": "cd android && gradlew.bat bundleRelease",
     "test": "jest",
     "postinstall": "patch-package"
   },
