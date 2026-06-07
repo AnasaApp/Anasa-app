@@ -16,13 +16,7 @@ import React, {useEffect, useRef, useState} from 'react';
 import config from '../../config';
 import {useDispatch, useSelector} from 'react-redux';
 
-import {
-  AddAddressReducer,
-  EditAddressReducer,
-  GetCitiesReducer,
-  MyProfileReducer,
-  UIReducer,
-} from '../../redux/reducers';
+import {GetCitiesReducer, MyProfileReducer, UIReducer} from '../../redux/reducers';
 import {SagaActions} from '../../redux/sagas/SagaActions';
 import Toast from 'react-native-simple-toast';
 import {useTranslation} from 'react-i18next';
@@ -39,13 +33,6 @@ const MapViewLocation = ({navigation, route}) => {
   const {t, i18n} = useTranslation();
 
   const dispatch = useDispatch();
-
-  const AddAddressResponse = useSelector(
-    AddAddressReducer.selectAddAddressData,
-  );
-  const EditAddressResponse = useSelector(
-    EditAddressReducer.selectEditAddressData,
-  );
 
   const MyProfileResponse = useSelector(MyProfileReducer.selectMyProfileData);
 
@@ -196,27 +183,58 @@ const MapViewLocation = ({navigation, route}) => {
       }
 
       setAddress(result.formatted_address);
-      const full_address = result.formatted_address.split(',') ?? [];
-      if (full_address[1]) {
-        setBuildingName(full_address[1]);
-      }
       setlatitude(lat);
       setlongitude(lng);
 
       const component = result.address_components ?? [];
+      let streetNumber = '';
+      let routeName = '';
+      let sublocality = '';
+      let localityName = '';
+      let adminArea = '';
+      let postalCode = '';
+      let countryName = '';
+
       for (let i = 0; i < component.length; i++) {
-        if (
-          component[i]?.types.includes('premise') ||
-          component[i]?.types.includes('street_number')
+        const types = component[i]?.types ?? [];
+        if (types.includes('street_number')) {
+          streetNumber = component[i]?.long_name;
+        } else if (types.includes('route')) {
+          routeName = component[i]?.long_name;
+        } else if (
+          types.includes('sublocality') ||
+          types.includes('sublocality_level_1') ||
+          types.includes('neighborhood')
         ) {
-          setHouseNo(component[i]?.long_name);
-        } else if (component[i]?.types.includes('postal_code')) {
-          setPincode(component[i]?.long_name);
-        } else if (component[i]?.types.includes('locality')) {
-          setLocality(component[i]?.long_name);
-        } else if (component[i]?.types.includes('country')) {
-          setCountry(component[i]?.long_name);
+          sublocality = component[i]?.long_name;
+        } else if (types.includes('locality')) {
+          localityName = component[i]?.long_name;
+        } else if (types.includes('administrative_area_level_2')) {
+          adminArea = component[i]?.long_name;
+        } else if (types.includes('postal_code')) {
+          postalCode = component[i]?.long_name;
+        } else if (types.includes('country')) {
+          countryName = component[i]?.long_name;
         }
+      }
+
+      if (streetNumber) {
+        setHouseNo(streetNumber);
+      }
+      if (routeName || sublocality) {
+        setBuildingName(routeName || sublocality);
+      }
+      if (sublocality || localityName) {
+        setLocality(sublocality || localityName);
+      }
+      if (localityName || adminArea) {
+        setCity(localityName || adminArea);
+      }
+      if (postalCode) {
+        setPincode(postalCode);
+      }
+      if (countryName) {
+        setCountry(countryName);
       }
 
       if (moveCamera) {
@@ -313,26 +331,6 @@ const MapViewLocation = ({navigation, route}) => {
     }
   };
 
-  useEffect(() => {
-    if (AddAddressResponse != null) {
-      if (AddAddressResponse?.error == false) {
-        Toast.show(AddAddressResponse?.message, Toast.LONG);
-        dispatch(AddAddressReducer.removeAddAddressResponse());
-        dispatch({type: SagaActions.MY_PROFILE, payload: ''});
-        navigation.navigate(config.routes.SELECT_LOCATION);
-      }
-    }
-  }, [AddAddressResponse]);
-  useEffect(() => {
-    if (EditAddressResponse != null) {
-      if (EditAddressResponse?.error == false) {
-        Toast.show(EditAddressResponse?.message, Toast.LONG);
-        dispatch(EditAddressReducer.removeEditAddressResponse());
-        dispatch({type: SagaActions.MY_PROFILE, payload: ''});
-        navigation.navigate(config.routes.SELECT_LOCATION);
-      }
-    }
-  }, [EditAddressResponse]);
   useEffect(() => {
     if (GetCitiesResponse != null) {
       if (GetCitiesResponse?.error == false) {

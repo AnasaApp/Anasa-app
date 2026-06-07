@@ -69,7 +69,9 @@ const AddNewAddress = ({navigation, route}) => {
     route?.params?.address ? route?.params?.address?.houseNo : '',
   );
   const [area, setArea] = useState(
-    route?.params?.address ? route?.params?.address?.address : '',
+    route?.params?.address
+      ? route?.params?.address?.locality || route?.params?.address?.address
+      : '',
   );
   const [city, setCity] = useState(
     route?.params?.address ? route?.params?.address?.city : '',
@@ -215,7 +217,9 @@ const AddNewAddress = ({navigation, route}) => {
         text1: t('Please enter locality or area'),
       });
     }
-    if (city == '') {
+    const resolvedCity =
+      typeof city === 'string' ? city : city?.city ?? '';
+    if (resolvedCity.trim() === '') {
       return Toast.show({
         type: 'error',
         text1: t('Please enter city'),
@@ -240,12 +244,15 @@ const AddNewAddress = ({navigation, route}) => {
       });
     }
 
+    const cityName = resolvedCity;
+    const cityNameAr = typeof city === 'string' ? city : city?.city_ar;
+
     const payload = {
       house_number: houseNo,
       building_name: building_name,
       locality: area,
-      city: city?.city,
-      city_ar: city?.city_ar,
+      city: cityName,
+      city_ar: cityNameAr,
       country: country,
       name: userName,
       mobileNumber: mobileNumber,

@@ -39,6 +39,10 @@ import Toast from 'react-native-simple-toast';
 import {useTranslation} from 'react-i18next';
 import {useFocusEffect} from '@react-navigation/native';
 import NoData from '../../conponents/NoData';
+import {
+  getCheckoutLocationId,
+  logCheckoutLocation,
+} from '../../utils/checkoutHelpers';
 
 const Cart = ({navigation, route}) => {
   const {t, i18n} = useTranslation();
@@ -83,6 +87,7 @@ const Cart = ({navigation, route}) => {
     MyProfileResponse,
   );
   const [location_id, setLocationId] = useState(route?.params?.location_id);
+  const cartAddressLockedRef = useRef(false);
 
   const [event_name, setEventName] = useState('');
   const [isStartDatePickerVisible, setStartDatePickerVisibility] =
@@ -256,16 +261,28 @@ const Cart = ({navigation, route}) => {
       }
     }
   }, [selectUpdateCartResponse]);
+  const applySelectedCartAddress = useCallback(
+    selected => {
+      if (!selected?._id) {
+        return;
+      }
+      setLocationId(selected);
+      cartAddressLockedRef.current = true;
+      navigation.setParams({selectedAddress: undefined});
+    },
+    [navigation],
+  );
+
   useFocusEffect(
     useCallback(() => {
       dispatch({type: SagaActions.GET_MY_CART, payload: {promoCodeId: ''}});
-      const selected = route.params?.selectedAddress;
-      if (selected?._id) {
-        setLocationId(selected);
-        navigation.setParams({selectedAddress: undefined});
-      }
-    }, [route.params?.selectedAddress, navigation, dispatch]),
+      applySelectedCartAddress(route.params?.selectedAddress);
+    }, [route.params?.selectedAddress, dispatch, applySelectedCartAddress]),
   );
+
+  useEffect(() => {
+    applySelectedCartAddress(route.params?.selectedAddress);
+  }, [route.params?.selectedAddress, applySelectedCartAddress]);
 
   useEffect(() => {
     if (MyProfileResponse?.results?.buyer?.preferredStartDate) {
@@ -284,7 +301,11 @@ const Cart = ({navigation, route}) => {
     if (MyProfileResponse?.results?.buyer?.preferredEndTime) {
       // setScheduleEndTime(MyProfileResponse?.results?.buyer?.preferredEndTime);
     }
-    if (MyProfileResponse?.results?.buyer?.default_address) {
+    if (
+      !cartAddressLockedRef.current &&
+      !location_id?._id &&
+      MyProfileResponse?.results?.buyer?.default_address
+    ) {
       setLocationId(MyProfileResponse?.results?.buyer?.default_address);
     }
   }, [MyProfileResponse]);
@@ -1083,8 +1104,14 @@ const Cart = ({navigation, route}) => {
     callBookingEligiblityApi();
   };
   const callBookingEligiblityApi = () => {
+    const checkoutLocationId = getCheckoutLocationId(location_id);
+    if (!checkoutLocationId) {
+      Toast.show(t('Please select an address'), Toast.LONG);
+      return;
+    }
+    logCheckoutLocation('Cart.bookingEligibility', location_id);
     const checkoutPayload = {
-      location: location_id?._id,
+      location: checkoutLocationId,
       event_name: event_name?.trim(),
       event_start_date: moment(schedule_start_date).format('YYYY-MM-DD'),
       event_start_time: schedule_start_time,
@@ -2100,9 +2127,15 @@ const Cart = ({navigation, route}) => {
         }
       }
 
+      if (!getCheckoutLocationId(location_id)) {
+        Toast.show(t('Please select an address'), Toast.LONG);
+        return;
+      }
+      logCheckoutLocation('Cart.navigateChooseDelivery', location_id);
       navigation.navigate(config.routes.CHOOSE_DELIVERY, {
         myCartData: GetMyCartResponse?.results,
         usedWalletBalance: usedWalletBalance,
+        location_id: location_id,
       });
       // refRBSheet.current.open();
     } else {
@@ -2236,6 +2269,7 @@ const Cart = ({navigation, route}) => {
                   navigation.navigate(config.routes.USER_ADDRESS, {
                     from: 'Cart',
                     returnScreen: config.routes.CART,
+                    currentAddress: location_id,
                   });
                 }}>
                 <Text

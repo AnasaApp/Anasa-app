@@ -1,4 +1,4 @@
-import React, {useState, useRef, useEffect} from 'react';
+import React, {useState, useRef, useEffect, useCallback} from 'react';
 import {
   View,
   Text,
@@ -37,6 +37,10 @@ import {
 } from '../../redux/reducers';
 import Toast from 'react-native-simple-toast';
 import {useTranslation} from 'react-i18next';
+import {
+  getCheckoutLocationId,
+  logCheckoutLocation,
+} from '../../utils/checkoutHelpers';
 
 const ChooseDelivery = ({navigation, route}) => {
   const {t, i18n} = useTranslation();
@@ -79,10 +83,10 @@ const ChooseDelivery = ({navigation, route}) => {
     BookingEligiblityReducer.selectBookingEligiblityResponse,
   );
 
+  const cartAddressLockedRef = useRef(!!route?.params?.location_id?._id);
   const [location_id, setLocationId] = useState(
-    route?.params?.location_id ?? '',
+    route?.params?.location_id ?? null,
   );
-  console.log('location_id', location_id);
 
   const [event_name, setEventName] = useState('');
   const [isStartDatePickerVisible, setStartDatePickerVisibility] =
@@ -286,28 +290,10 @@ const ChooseDelivery = ({navigation, route}) => {
         ) {
           onMakePaymentApi();
         } else {
-          const checkoutPayload = {
-            location: location_id?._id,
-            event_name: event_name?.trim(),
-            event_start_date: moment(schedule_start_date).format('YYYY-MM-DD'),
-            event_start_time: schedule_start_time,
-            event_end_date: moment(schedule_end_date).format('YYYY-MM-DD'),
-            event_end_time: schedule_end_time,
-            promoCodeId: promocode != '' ? promocode?.promocode?._id : '',
-            offerId: '',
-            serviceCharge: myCartData?.serviceCharge,
-            shippingCost: totalDeliveryCharges,
-            discount: myCartData?.discount,
-            grandTotal: myCartData?.grandTotal,
-            commissionAmount: myCartData?.commissionAmount,
-            buyerComment: buyerComment,
-            deliveryData: deliveryData,
-            usedWalletBalance: route?.params?.usedWalletBalance ?? 0,
-          };
-
+          logCheckoutLocation('ChooseDelivery.checkoutCart', location_id);
           dispatch({
             type: SagaActions.CHECKOUT_CART,
-            payload: checkoutPayload,
+            payload: buildCheckoutPayload(),
           });
         }
 
@@ -341,23 +327,8 @@ const ChooseDelivery = ({navigation, route}) => {
     if (MakePaymentResponse != null) {
       if (MakePaymentResponse?.error == false) {
         if (MakePaymentResponse?.results?.redirectUrl) {
-          const checkoutPayload = {
-            location: location_id?._id,
-            event_name: event_name?.trim(),
-            event_start_date: moment(schedule_start_date).format('YYYY-MM-DD'),
-            event_start_time: schedule_start_time,
-            event_end_date: moment(schedule_end_date).format('YYYY-MM-DD'),
-            event_end_time: schedule_end_time,
-            promoCodeId: promocode != '' ? promocode?.promocode?._id : '',
-            offerId: '',
-            serviceCharge: myCartData?.serviceCharge,
-            shippingCost: totalDeliveryCharges,
-            discount: myCartData?.discount,
-            grandTotal: myCartData?.grandTotal,
-            commissionAmount: myCartData?.commissionAmount,
-            buyerComment: buyerComment,
-            deliveryData: deliveryData,
-          };
+          const checkoutPayload = buildCheckoutPayload();
+          logCheckoutLocation('ChooseDelivery.checkPayment', location_id);
 
           navigation.replace(config.routes.CHECK_PAYMENT, {
            transactionID: MakePaymentResponse?.results?.orderId,
@@ -400,13 +371,19 @@ const ChooseDelivery = ({navigation, route}) => {
     }
   }, [selectUpdateCartResponse]);
   useEffect(() => {
-    dispatch({
-      type: SagaActions.CALCULATE_DELIVERY_CHARGES,
-      payload: {location: location_id?._id},
-    });
-  }, []);
+    if (route?.params?.location_id?._id) {
+      cartAddressLockedRef.current = true;
+      setLocationId(route.params.location_id);
+      logCheckoutLocation('ChooseDelivery.routeParams', route.params.location_id);
+    }
+  }, [route?.params?.location_id]);
+
   useEffect(() => {
-    if (MyProfileResponse?.results?.buyer?.default_address) {
+    if (
+      !cartAddressLockedRef.current &&
+      !location_id?._id &&
+      MyProfileResponse?.results?.buyer?.default_address
+    ) {
       setLocationId(MyProfileResponse?.results?.buyer?.default_address);
     }
     if (MyProfileResponse?.results?.buyer?.preferredStartDate) {
@@ -711,25 +688,56 @@ const ChooseDelivery = ({navigation, route}) => {
     refRBSheet.current.close();
     callBookingEligiblityApi();
   };
+  const buildCheckoutPayload = useCallback(
+    extra => {
+      const checkoutLocationId = getCheckoutLocationId(location_id);
+      return {
+        location: checkoutLocationId,
+        event_name: event_name?.trim(),
+        event_start_date: moment(schedule_start_date).format('YYYY-MM-DD'),
+        event_start_time: schedule_start_time,
+        event_end_date: moment(schedule_end_date).format('YYYY-MM-DD'),
+        event_end_time: schedule_end_time,
+        promoCodeId: promocode != '' ? promocode?.promocode?._id : '',
+        offerId: '',
+        serviceCharge: myCartData?.serviceCharge,
+        shippingCost: totalDeliveryCharges,
+        discount: myCartData?.discount,
+        grandTotal: myCartData?.grandTotal,
+        commissionAmount: myCartData?.commissionAmount,
+        buyerComment: buyerComment,
+        deliveryData: deliveryData,
+        usedWalletBalance: route?.params?.usedWalletBalance ?? 0,
+        ...extra,
+      };
+    },
+    [
+      location_id,
+      event_name,
+      schedule_start_date,
+      schedule_start_time,
+      schedule_end_date,
+      schedule_end_time,
+      promocode,
+      myCartData,
+      totalDeliveryCharges,
+      buyerComment,
+      deliveryData,
+      route?.params?.usedWalletBalance,
+    ],
+  );
+
   const callBookingEligiblityApi = () => {
-    const checkoutPayload = {
-      location: location_id?._id,
-      event_name: event_name?.trim(),
-      event_start_date: moment(schedule_start_date).format('YYYY-MM-DD'),
-      event_start_time: schedule_start_time,
-      event_end_date: moment(schedule_end_date).format('YYYY-MM-DD'),
-      event_end_time: schedule_end_time,
-      promoCodeId: promocode != '' ? promocode?.promocode?._id : '',
-      offerId: '',
-      shippingCost: totalDeliveryCharges,
-      discount: myCartData?.discount,
-      grandTotal: myCartData?.grandTotal,
-      commissionAmount: myCartData?.commissionAmount,
-      buyerComment: buyerComment,
-      deliveryData: deliveryData,
-      usedWalletBalance: route?.params?.usedWalletBalance ?? 0,
-    };
-    dispatch({type: SagaActions.BOOKING_ELIGIBILITY, payload: checkoutPayload});
+    const checkoutLocationId = getCheckoutLocationId(location_id);
+    if (!checkoutLocationId) {
+      Toast.show(t('Please select an address'), Toast.LONG);
+      return;
+    }
+    logCheckoutLocation('ChooseDelivery.bookingEligibility', location_id);
+    dispatch({
+      type: SagaActions.BOOKING_ELIGIBILITY,
+      payload: buildCheckoutPayload(),
+    });
   };
   const onCheckValidPromoCodeApi = () => {
     const payload = {

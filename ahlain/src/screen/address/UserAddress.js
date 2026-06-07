@@ -8,7 +8,7 @@ import {
   Image,
   StatusBar,
 } from 'react-native';
-import React, {useCallback, useEffect, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import config from '../../config';
 import Toast from 'react-native-simple-toast';
 import AppHeader from '../../conponents/AppHeader';
@@ -48,17 +48,23 @@ const SelectLocation = ({navigation, route}) => {
   const DeleteAddressErrorResponse = useSelector(
     DeleteAddressReducer.selectDeleteAddressResponse,
   );
-  const [select, setSelect] = useState(
-    UserProfileResponse?.results?.buyer?.default_address?._id,
-  );
-  const [selectLocation, setSelectLocation] = useState(
-    UserProfileResponse?.results?.buyer?.default_address,
-  );
+  const getInitialSelection = () => {
+    if (route?.params?.from === 'Cart' && route?.params?.currentAddress?._id) {
+      return route.params.currentAddress;
+    }
+    return UserProfileResponse?.results?.buyer?.default_address;
+  };
+
+  const initialSelection = getInitialSelection();
+  const [select, setSelect] = useState(initialSelection?._id);
+  const [selectLocation, setSelectLocation] = useState(initialSelection);
+  const userHasChangedSelectionRef = useRef(false);
 
   const [isConfirmationModalVisible, setIsConfirmationModalVisible] =
     useState(false);
   const [selectedAddress, setSelectedAddress] = useState('');
   const onChange = val => {
+    userHasChangedSelectionRef.current = true;
     setSelect(val._id);
     setSelectLocation(val);
     if (route?.params?.from == 'Cart') {
@@ -71,8 +77,13 @@ const SelectLocation = ({navigation, route}) => {
   };
   useFocusEffect(
     useCallback(() => {
+      userHasChangedSelectionRef.current = false;
       callGetAddressApi();
-    }, []),
+      if (route?.params?.from === 'Cart' && route?.params?.currentAddress?._id) {
+        setSelect(route.params.currentAddress._id);
+        setSelectLocation(route.params.currentAddress);
+      }
+    }, [route?.params?.from, route?.params?.currentAddress?._id]),
   );
   useEffect(() => {
     if (ChangeDefaultAddressResponse != null) {
@@ -104,6 +115,40 @@ const SelectLocation = ({navigation, route}) => {
       }
     }
   }, [DeleteAddressErrorResponse]);
+
+  useEffect(() => {
+    const addresses = GetAddressResponse?.results?.address;
+    if (!addresses?.length) {
+      return;
+    }
+
+    const cartAddressId =
+      route?.params?.from === 'Cart' &&
+      !userHasChangedSelectionRef.current
+        ? route?.params?.currentAddress?._id
+        : null;
+    const defaultId =
+      UserProfileResponse?.results?.buyer?.default_address?._id;
+    const activeId = select ?? cartAddressId ?? defaultId;
+
+    if (!activeId) {
+      return;
+    }
+
+    const fresh = addresses.find(item => item._id === activeId);
+    if (fresh) {
+      setSelectLocation(fresh);
+      if (select !== activeId) {
+        setSelect(activeId);
+      }
+    }
+  }, [
+    GetAddressResponse,
+    select,
+    route?.params?.from,
+    route?.params?.currentAddress?._id,
+    UserProfileResponse,
+  ]);
   //api calling
 
   const callGetAddressApi = () => {
@@ -137,6 +182,7 @@ const SelectLocation = ({navigation, route}) => {
         name: route.params.returnScreen,
         params: {selectedAddress: selectLocation},
         merge: true,
+        pop: true,
       });
       return;
     }
